@@ -78,10 +78,10 @@ function M:layoutBars()
 
 		f:ClearAllPoints()
 		f:SetPoint("BOTTOMLEFT", frames.barsParent, "BOTTOMLEFT", 0, y)
-		y = y + L.BAR_HEIGHT + C.BAR_GAP
+		y = y + L.BAR_HEIGHT + L.GAP
 	end
 
-	local h = (#list > 0) and (y - C.BAR_GAP) or 1
+	local h = (#list > 0) and (y - L.GAP) or 1
 	local totalW = L.BAR_WIDTH + (maxEndW > 0 and (C.BAR_END_INDICATOR_GAP_X + maxEndW) or 0)
 	frames.barsParent:SetSize(totalW, h)
 end
@@ -196,7 +196,7 @@ function M:ensureBar(rec)
 	refreshBarLabelAndIcon(rec)
 
 	M.applyIndicatorsToBarEnd(bar, rec.id)
-	M.setBarFillFlat(bar, C.BAR_FG_R, C.BAR_FG_G, C.BAR_FG_B, C.BAR_FG_A)
+	M.setBarFillFlat(bar, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
 
 	bar:SetScript("OnUpdate", function(self)
 		local rrec = M.events[self.__id]
@@ -261,13 +261,21 @@ function M:updateRecord(eventID, eventInfo, remaining)
 			f.cd:Clear()
 		end
 
-		M.applyIndicatorsToIconFrame(f, rec.id)
+		if rec.isTest and M.ApplyTestIndicators then
+			M:ApplyTestIndicators(f, true)
+		else
+			M.applyIndicatorsToIconFrame(f, rec.id)
+		end
 	end
 
 	if rec.barFrame then
 		refreshBarLabelAndIcon(rec)
-		M.applyIndicatorsToBarEnd(rec.barFrame, rec.id)
-		M.setBarFillFlat(rec.barFrame, C.BAR_FG_R, C.BAR_FG_G, C.BAR_FG_B, C.BAR_FG_A)
+		if rec.isTest and M.ApplyTestIndicators then
+			M:ApplyTestIndicators(rec.barFrame, false)
+		else
+			M.applyIndicatorsToBarEnd(rec.barFrame, rec.id)
+		end
+		M.setBarFillFlat(rec.barFrame, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
 	end
 end
 
@@ -277,7 +285,10 @@ end
 function M:Tick()
 	if not self.enabled then return end
 	if self._testTicker then return end
-	if not (C_EncounterTimeline and C_EncounterTimeline.HasActiveEvents and C_EncounterTimeline.GetEventList) then return end
+	local hasTimeline = C_EncounterTimeline
+		and C_EncounterTimeline.HasActiveEvents
+		and C_EncounterTimeline.GetEventList
+	if not hasTimeline then return end
 
 	if not C_EncounterTimeline.HasActiveEvents() then
 		if next(self.events) ~= nil then self:clearAll() end
@@ -290,8 +301,15 @@ function M:Tick()
 	local seen = {}
 	for _, eventID in ipairs(list) do
 		seen[eventID] = true
+		local rec = self.events[eventID]
+		if not rec then
+			rec = { id = eventID }
+			self.events[eventID] = rec
+		end
+		rec.isTest = self._testTimelineEventIDSet and self._testTimelineEventIDSet[eventID] or false
+
 		local info = C_EncounterTimeline.GetEventInfo and C_EncounterTimeline.GetEventInfo(eventID) or nil
-		local rem  = C_EncounterTimeline.GetEventTimeRemaining and C_EncounterTimeline.GetEventTimeRemaining(eventID) or nil
+		local rem = C_EncounterTimeline.GetEventTimeRemaining and C_EncounterTimeline.GetEventTimeRemaining(eventID) or nil
 		self:updateRecord(eventID, info, rem)
 	end
 

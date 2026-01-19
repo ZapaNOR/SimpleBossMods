@@ -256,6 +256,8 @@ end
 local function applyBarFont(fs)
 	if not fs then return end
 	fs:SetFont(C.FONT_PATH, L.BAR_FONT_SIZE, C.FONT_FLAGS)
+	fs:SetShadowColor(0, 0, 0, 0)
+	fs:SetShadowOffset(0, 0)
 end
 
 M.applyIconFont = applyIconFont
@@ -419,7 +421,7 @@ local function acquireBar()
 	applyBarFont(f.txt)
 	applyBarFont(f.rt)
 
-	setBarFillFlat(f, C.BAR_FG_R, C.BAR_FG_G, C.BAR_FG_B, C.BAR_FG_A)
+	setBarFillFlat(f, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
 
 	f:Show()
 	return f
@@ -433,7 +435,7 @@ local function releaseBar(f)
 
 	f.sb:SetMinMaxValues(0, C.THRESHOLD_TO_BAR)
 	f.sb:SetValue(C.THRESHOLD_TO_BAR)
-	setBarFillFlat(f, C.BAR_FG_R, C.BAR_FG_G, C.BAR_FG_B, C.BAR_FG_A)
+	setBarFillFlat(f, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
 
 	f.txt:SetText("")
 	f.rt:SetText("")

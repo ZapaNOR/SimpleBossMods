@@ -52,10 +52,5 @@ SlashCmdList["SIMPLEBOSSMODS"] = function(msg)
 		return
 	end
 
-	if msg == "clear" then
-		M:StopTest()
-		return
-	end
-
-	print(ADDON_NAME .. " commands: /sbm | /sbm settings|config|options | /sbm test | /sbm clear")
+	print(ADDON_NAME .. " commands: /sbm | /sbm settings|config|options | /sbm test")
 end
