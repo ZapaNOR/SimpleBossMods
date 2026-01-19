@@ -251,6 +251,8 @@ local barPool = pools.bar
 local function applyIconFont(fs)
 	if not fs then return end
 	fs:SetFont(C.FONT_PATH, L.ICON_FONT_SIZE, C.FONT_FLAGS)
+	fs:SetShadowColor(0, 0, 0, 0)
+	fs:SetShadowOffset(0, 0)
 end
 
 local function applyBarFont(fs)
