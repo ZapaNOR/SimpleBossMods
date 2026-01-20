@@ -44,7 +44,18 @@ M.Defaults = M.Defaults or {
 	cfg = {
 		general = { gap = 8 },
 		icons = { size = 64, fontSize = 32, borderThickness = 2 },
-		bars = { width = 352, height = 36, fontSize = 16, borderThickness = 2 },
+		bars = {
+			width = 352,
+			height = 36,
+			fontSize = 16,
+			borderThickness = 2,
+			color = {
+				r = C.BAR_FG_R,
+				g = C.BAR_FG_G,
+				b = C.BAR_FG_B,
+				a = C.BAR_FG_A,
+			},
+		},
 		indicators = { iconSize = 10, barSize = 20 },
 	},
 }
@@ -66,6 +77,12 @@ function M:EnsureDefaults()
 		height = M.Defaults.cfg.bars.height,
 		fontSize = M.Defaults.cfg.bars.fontSize,
 		borderThickness = M.Defaults.cfg.bars.borderThickness,
+	}
+	cfg.bars.color = cfg.bars.color or {
+		r = M.Defaults.cfg.bars.color.r,
+		g = M.Defaults.cfg.bars.color.g,
+		b = M.Defaults.cfg.bars.color.b,
+		a = M.Defaults.cfg.bars.color.a,
 	}
 	cfg.indicators = cfg.indicators or {
 		iconSize = M.Defaults.cfg.indicators.iconSize,
@@ -107,6 +124,11 @@ function M.SyncLiveConfig()
 	L.BAR_HEIGHT = bc.height
 	L.BAR_FONT_SIZE = bc.fontSize
 	L.BAR_BORDER_THICKNESS = bc.borderThickness
+	local barColor = bc.color or {}
+	L.BAR_FG_R = U.clamp(tonumber(barColor.r) or C.BAR_FG_R, 0, 1)
+	L.BAR_FG_G = U.clamp(tonumber(barColor.g) or C.BAR_FG_G, 0, 1)
+	L.BAR_FG_B = U.clamp(tonumber(barColor.b) or C.BAR_FG_B, 0, 1)
+	L.BAR_FG_A = U.clamp(tonumber(barColor.a) or C.BAR_FG_A, 0, 1)
 
 	L.ICON_INDICATOR_SIZE = tonumber(inc.iconSize) or 0
 	L.BAR_INDICATOR_SIZE = tonumber(inc.barSize) or 0
@@ -125,7 +147,24 @@ function U.formatTimeBar(rem)
 end
 
 function U.safeGetIconFileID(eventInfo)
-	return type(eventInfo) == "table" and (eventInfo.iconFileID or eventInfo.icon) or nil
+	if type(eventInfo) ~= "table" then return nil end
+	local icon = eventInfo.iconFileID or eventInfo.icon
+	if icon then return icon end
+	if type(eventInfo.spellID) == "number" then
+		local ok, iconFileID = pcall(function()
+			if C_Spell and C_Spell.GetSpellInfo then
+				local info = C_Spell.GetSpellInfo(eventInfo.spellID)
+				return info and info.iconID or nil
+			end
+			if GetSpellInfo then
+				local _, _, iconTex = GetSpellInfo(eventInfo.spellID)
+				return iconTex
+			end
+			return nil
+		end)
+		if ok then return iconFileID end
+	end
+	return nil
 end
 
 function U.safeGetLabel(eventInfo)
@@ -155,6 +194,21 @@ function U.safeGetLabel(eventInfo)
 	return label
 end
 
+function M:CanUseTimelineScriptEvents()
+	return C_EncounterTimeline and type(C_EncounterTimeline.AddScriptEvent) == "function"
+end
+
+function M:SafeAddScriptEvent(payload)
+	if not (C_EncounterTimeline and type(C_EncounterTimeline.AddScriptEvent) == "function") then
+		return nil
+	end
+	local ok, id = pcall(C_EncounterTimeline.AddScriptEvent, payload)
+	if ok then return id end
+	ok, id = pcall(C_EncounterTimeline.AddScriptEvent, C_EncounterTimeline, payload)
+	if ok then return id end
+	return nil
+end
+
 function U.barIndicatorSize()
 	if L.BAR_INDICATOR_SIZE and L.BAR_INDICATOR_SIZE > 0 then
 		return U.clamp(U.round(L.BAR_INDICATOR_SIZE), 8, 32)
@@ -181,3 +235,5 @@ M.events = M.events or {}
 M._settingsCategoryName = "SimpleBossMods"
 M._settingsCategoryID = nil
 M._testTicker = nil
+M._testTimelineEventIDs = nil
+M._testTimelineEventIDSet = nil

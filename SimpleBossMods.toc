@@ -2,7 +2,7 @@
 ## Title: Simple Boss Mods (SBM)
 ## Notes: 
 ## Author: Zapa
-## Version: 0.5
+## Version: 0.8
 ## SavedVariables: SimpleBossModsDB
 ## X-Wago-ID: 5NR8exK3
 
