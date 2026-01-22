@@ -28,6 +28,12 @@ C.TICK_INTERVAL = 0.20
 -- Move everything slightly up (requested)
 C.GLOBAL_Y_NUDGE = 0.1
 
+-- Manual timers
+C.PULL_ICON = "Interface\\Icons\\Ability_Warrior_Charge"
+C.BREAK_ICON = "Interface\\Icons\\INV_Misc_DeliciousPizza"
+C.PULL_LABEL = "Pull"
+C.BREAK_LABEL = "Break"
+
 -- Indicators
 C.INDICATOR_MAX = 6
 C.INDICATOR_MASK = 1023 -- all bits
@@ -64,6 +70,7 @@ function M:EnsureDefaults()
 	SimpleBossModsDB = SimpleBossModsDB or {}
 	SimpleBossModsDB.pos = SimpleBossModsDB.pos or { x = M.Defaults.pos.x, y = M.Defaults.pos.y }
 	SimpleBossModsDB.cfg = SimpleBossModsDB.cfg or {}
+	SimpleBossModsDB.manualTimers = SimpleBossModsDB.manualTimers or {}
 
 	local cfg = SimpleBossModsDB.cfg
 	cfg.general = cfg.general or { gap = M.Defaults.cfg.general.gap }
@@ -128,22 +135,76 @@ function M.SyncLiveConfig()
 	L.BAR_FG_R = U.clamp(tonumber(barColor.r) or C.BAR_FG_R, 0, 1)
 	L.BAR_FG_G = U.clamp(tonumber(barColor.g) or C.BAR_FG_G, 0, 1)
 	L.BAR_FG_B = U.clamp(tonumber(barColor.b) or C.BAR_FG_B, 0, 1)
-	L.BAR_FG_A = U.clamp(tonumber(barColor.a) or C.BAR_FG_A, 0, 1)
+	L.BAR_FG_A = 1.0
 
 	L.ICON_INDICATOR_SIZE = tonumber(inc.iconSize) or 0
 	L.BAR_INDICATOR_SIZE = tonumber(inc.barSize) or 0
 end
 
 function U.formatTimeIcon(rem)
+	if type(issecretvalue) == "function" and issecretvalue(rem) then return "" end
 	if rem <= 0 then return "" end
-	return tostring(math.max(0, math.floor(rem + 0.5))) -- no decimals
+	local secs = math.max(0, math.floor(rem + 0.5))
+	if secs >= 3600 then
+		local h = math.floor(secs / 3600)
+		local m = math.floor((secs % 3600) / 60)
+		local s = secs % 60
+		return string.format("%d:%02d:%02d", h, m, s)
+	end
+	if secs >= 60 then
+		local m = math.floor(secs / 60)
+		local s = secs % 60
+		return string.format("%d:%02d", m, s)
+	end
+	return tostring(secs)
 end
 
 function U.formatTimeBar(rem)
+	if type(issecretvalue) == "function" and issecretvalue(rem) then return "" end
+	if rem >= 60 then
+		local secs = math.max(0, math.floor(rem + 0.5))
+		if secs >= 3600 then
+			local h = math.floor(secs / 3600)
+			local m = math.floor((secs % 3600) / 60)
+			local s = secs % 60
+			return string.format("%d:%02d:%02d", h, m, s)
+		end
+		local m = math.floor(secs / 60)
+		local s = secs % 60
+		return string.format("%d:%02d", m, s)
+	end
 	if rem >= 10 then
 		return tostring(math.floor(rem + 0.5))
 	end
 	return string.format("%.1f", rem)
+end
+
+function M:GetManualTimerIcon(kind)
+	local function normalizeIcon(icon)
+		if type(icon) == "number" or type(icon) == "string" then
+			return icon
+		end
+		return nil
+	end
+
+	if kind == "pull" then
+		return C.PULL_ICON
+	end
+	if kind == "break" then
+		local dbm = _G.DBM
+		if type(dbm) == "table" then
+			local icon = normalizeIcon(dbm.BreakIcon)
+			if not icon and type(dbm.Options) == "table" then
+				icon = normalizeIcon(dbm.Options.BreakTimerIcon or dbm.Options.BreakIcon)
+			end
+			if not icon and type(dbm.BreakTimer) == "table" then
+				icon = normalizeIcon(dbm.BreakTimer.icon or dbm.BreakTimer.iconID or dbm.BreakTimer.iconTexture)
+			end
+			if icon then return icon end
+		end
+		return C.BREAK_ICON
+	end
+	return nil
 end
 
 function U.safeGetIconFileID(eventInfo)

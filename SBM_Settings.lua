@@ -95,7 +95,7 @@ function M:ApplyBarColor(r, g, b, a)
 	bc.color.r = U.clamp(tonumber(r) or L.BAR_FG_R, 0, 1)
 	bc.color.g = U.clamp(tonumber(g) or L.BAR_FG_G, 0, 1)
 	bc.color.b = U.clamp(tonumber(b) or L.BAR_FG_B, 0, 1)
-	bc.color.a = U.clamp(tonumber(a) or L.BAR_FG_A, 0, 1)
+	bc.color.a = 1.0
 
 	M.SyncLiveConfig()
 
@@ -280,14 +280,14 @@ function M:CreateSettingsPanel()
 		swatch.tex = tex
 
 		local function refresh()
-			local r, g, b, a = get()
-			swatch.tex:SetColorTexture(r, g, b, a or 1)
+			local r, g, b = get()
+			swatch.tex:SetColorTexture(r, g, b, 1)
 		end
 
 		swatch:SetScript("OnClick", function()
-			local r, g, b, a = get()
-			OpenColorPicker(r, g, b, a, function(nr, ng, nb, na)
-				set(nr, ng, nb, na)
+			local r, g, b = get()
+			OpenColorPicker(r, g, b, nil, function(nr, ng, nb)
+				set(nr, ng, nb, 1)
 				refresh()
 			end)
 		end)

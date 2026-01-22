@@ -231,10 +231,12 @@ M.applyIndicatorsToBarEnd = applyIndicatorsToBarEnd
 -- =========================
 local function setBarFillFlat(barFrame, r, g, b, a)
 	if not barFrame or not barFrame.sb then return end
-	local tex = barFrame.sbTex or barFrame.sb:GetStatusBarTexture()
+	local flatTex = "Interface\\Buttons\\WHITE8X8"
+	barFrame.sb:SetStatusBarTexture(flatTex)
+	local tex = barFrame.sb:GetStatusBarTexture()
 	barFrame.sbTex = tex
-	if not tex then return end
-	tex:SetColorTexture(r, g, b, a or 1)
+	barFrame.sb:SetStatusBarColor(r, g, b, a or 1)
+	if tex then tex:SetDrawLayer("ARTWORK") end
 end
 
 M.setBarFillFlat = setBarFillFlat

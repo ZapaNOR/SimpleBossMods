@@ -101,6 +101,13 @@ end
 function M:removeEvent(eventID)
 	local rec = self.events[eventID]
 	if not rec then return end
+	if rec.countdownTimer and rec.countdownTimer.Cancel then
+		rec.countdownTimer:Cancel()
+	end
+	rec.countdownTimer = nil
+	if rec.isManual and rec.kind and self.ClearManualTimerState then
+		self:ClearManualTimerState(rec.kind)
+	end
 	M.releaseIcon(rec.iconFrame)
 	M.releaseBar(rec.barFrame)
 	self.events[eventID] = nil
@@ -203,7 +210,11 @@ function M:ensureBar(rec)
 		if not rrec then return end
 
 		local rem = rrec.remaining
-		if C_EncounterTimeline and C_EncounterTimeline.GetEventTimeRemaining then
+		if rrec.isManual and rrec.endTime then
+			rem = rrec.endTime - GetTime()
+			if rem < 0 then rem = 0 end
+			rrec.remaining = rem
+		elseif C_EncounterTimeline and C_EncounterTimeline.GetEventTimeRemaining then
 			local ok, v = pcall(C_EncounterTimeline.GetEventTimeRemaining, rrec.id)
 			if ok and type(v) == "number" then
 				rem = v
@@ -218,9 +229,22 @@ function M:ensureBar(rec)
 			return
 		end
 
-		local shown = U.clamp(rem, 0, C.THRESHOLD_TO_BAR)
-		self.sb:SetValue(shown)
-		self.rt:SetText(U.formatTimeBar(shown))
+		if rrec.isManual then
+			local dur = rrec.duration
+			if type(dur) == "number" and dur > 0 then
+				self.sb:SetMinMaxValues(0, dur)
+				self.sb:SetValue(U.clamp(rem, 0, dur))
+			else
+				self.sb:SetMinMaxValues(0, C.THRESHOLD_TO_BAR)
+				self.sb:SetValue(U.clamp(rem, 0, C.THRESHOLD_TO_BAR))
+			end
+			self.rt:SetText(U.formatTimeBar(rem))
+		else
+			local shown = U.clamp(rem, 0, C.THRESHOLD_TO_BAR)
+			self.sb:SetMinMaxValues(0, C.THRESHOLD_TO_BAR)
+			self.sb:SetValue(shown)
+			self.rt:SetText(U.formatTimeBar(shown))
+		end
 	end)
 end
 
@@ -241,7 +265,9 @@ function M:updateRecord(eventID, eventInfo, remaining)
 		updateRecTiming(rec, rec.remaining)
 	end
 
-	if type(rec.remaining) == "number" and rec.remaining <= C.THRESHOLD_TO_BAR then
+	if rec.forceBar then
+		self:ensureBar(rec)
+	elseif type(rec.remaining) == "number" and rec.remaining <= C.THRESHOLD_TO_BAR then
 		self:ensureBar(rec)
 	else
 		self:ensureIcon(rec)
@@ -261,7 +287,9 @@ function M:updateRecord(eventID, eventInfo, remaining)
 			f.cd:Clear()
 		end
 
-		if rec.isTest and M.ApplyTestIndicators then
+		if rec.isManual then
+			-- no secure timeline indicators for manual timers
+		elseif rec.isTest and M.ApplyTestIndicators then
 			M:ApplyTestIndicators(f, true)
 		else
 			M.applyIndicatorsToIconFrame(f, rec.id)
@@ -270,7 +298,12 @@ function M:updateRecord(eventID, eventInfo, remaining)
 
 	if rec.barFrame then
 		refreshBarLabelAndIcon(rec)
-		if rec.isTest and M.ApplyTestIndicators then
+		if rec.isManual then
+			if type(rec.duration) == "number" and rec.duration > 0 then
+				rec.barFrame.sb:SetMinMaxValues(0, rec.duration)
+				rec.barFrame.sb:SetValue(U.clamp(rec.remaining or rec.duration, 0, rec.duration))
+			end
+		elseif rec.isTest and M.ApplyTestIndicators then
 			M:ApplyTestIndicators(rec.barFrame, false)
 		else
 			M.applyIndicatorsToBarEnd(rec.barFrame, rec.id)
@@ -291,7 +324,18 @@ function M:Tick()
 	if not hasTimeline then return end
 
 	if not C_EncounterTimeline.HasActiveEvents() then
-		if next(self.events) ~= nil then self:clearAll() end
+		if next(self.events) ~= nil then
+			local removed = false
+			for id, rec in pairs(self.events) do
+				if not (rec and rec.isManual) then
+					self:removeEvent(id)
+					removed = true
+				end
+			end
+			if removed then
+				self:LayoutAll()
+			end
+		end
 		return
 	end
 
@@ -314,12 +358,15 @@ function M:Tick()
 	end
 
 	for id in pairs(self.events) do
-		if not seen[id] then self:removeEvent(id) end
+		local rec = self.events[id]
+		if not seen[id] and not (rec and rec.isManual) then
+			self:removeEvent(id)
+		end
 	end
 
 	-- Keep icon numbers updating smoothly
 	for _, rec in pairs(self.events) do
-		if rec.iconFrame and C_EncounterTimeline and C_EncounterTimeline.GetEventTimeRemaining then
+		if rec.iconFrame and not rec.isManual and C_EncounterTimeline and C_EncounterTimeline.GetEventTimeRemaining then
 			local ok, v = pcall(C_EncounterTimeline.GetEventTimeRemaining, rec.id)
 			if ok and type(v) == "number" then
 				rec.remaining = v
