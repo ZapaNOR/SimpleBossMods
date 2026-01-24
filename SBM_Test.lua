@@ -5,6 +5,7 @@ local M = _G[ADDON_NAME]
 if not M then return end
 
 local C = M.Const
+local L = M.Live
 
 -- =========================
 -- Test mode (single run)
@@ -186,7 +187,7 @@ function M:StartTest()
 				M._updateRecTiming(rec, rem)
 				anyActive = true
 
-				if rem <= C.THRESHOLD_TO_BAR then
+				if rem <= L.THRESHOLD_TO_BAR then
 					M:ensureBar(rec)
 				else
 					M:ensureIcon(rec)

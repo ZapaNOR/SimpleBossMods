@@ -4,6 +4,7 @@ local ADDON_NAME = ...
 local M = _G[ADDON_NAME]
 if not M then return end
 local C = M.Const
+local L = M.Live
 
 local MANUAL_TIMER_IDS = {
 	pull = 9101001,
@@ -34,6 +35,92 @@ local function parseTimerValue(value)
 	if not m then return nil end
 	return (tonumber(m) or 0) * 60 + (tonumber(s) or 0)
 end
+
+local function shouldAutoSlotKeystone()
+	if not L.AUTO_INSERT_KEYSTONE then return false end
+	if not (C_ChallengeMode and C_ChallengeMode.SlotKeystone) then return false end
+	return true
+end
+
+local function getInstanceMapID()
+	if not GetInstanceInfo then return nil end
+	local _, _, _, _, _, _, _, instanceID = GetInstanceInfo()
+	return instanceID
+end
+
+local function getContainerAPIs()
+	if C_Container and C_Container.GetContainerNumSlots then
+		return C_Container.GetContainerNumSlots, C_Container.GetContainerItemLink, C_Container.PickupContainerItem
+	end
+	if GetContainerNumSlots and GetContainerItemLink and PickupContainerItem then
+		return GetContainerNumSlots, GetContainerItemLink, PickupContainerItem
+	end
+	return nil, nil, nil
+end
+
+local function autoSlotKeystone()
+	if not shouldAutoSlotKeystone() then return end
+	if GetTime then
+		local now = GetTime()
+		if M._keystoneAutoSlotAt and (now - M._keystoneAutoSlotAt) < 0.5 then
+			return
+		end
+		M._keystoneAutoSlotAt = now
+	end
+
+	local GetContainerNumSlots, GetContainerItemLink, PickupContainerItem = getContainerAPIs()
+	if not GetContainerNumSlots then return end
+
+	for bag = 0, 4 do
+		local slots = GetContainerNumSlots(bag) or 0
+		for slot = 1, slots do
+			local itemLink = GetContainerItemLink(bag, slot)
+			if itemLink and itemLink:find("Hkeystone", nil, true) then
+				if not (C_ChallengeMode.HasSlottedKeystone and C_ChallengeMode.HasSlottedKeystone()) then
+					PickupContainerItem(bag, slot)
+					pcall(C_ChallengeMode.SlotKeystone)
+				end
+				return
+			end
+		end
+	end
+end
+
+local function setupKeystoneAutoInsert()
+	if M._keystoneHooked then return end
+	if not (C_ChallengeMode and C_ChallengeMode.SlotKeystone) then return end
+	local frame = _G.ChallengesKeystoneFrame
+	if not frame then
+		if C_Timer and C_Timer.After then
+			M._keystoneHookRetry = (M._keystoneHookRetry or 0) + 1
+			if M._keystoneHookRetry <= 10 then
+				C_Timer.After(0.5, setupKeystoneAutoInsert)
+			end
+		end
+		return
+	end
+
+	if not M._keystoneEventFrame then
+		local kef = CreateFrame("Frame")
+		kef:RegisterEvent("CHALLENGE_MODE_KEYSTONE_RECEPTABLE_OPEN")
+		kef:SetScript("OnEvent", function()
+			autoSlotKeystone()
+		end)
+		M._keystoneEventFrame = kef
+	end
+
+	frame:HookScript("OnShow", function()
+		autoSlotKeystone()
+	end)
+
+	M._keystoneHooked = true
+	M._keystoneHookRetry = nil
+	if frame:IsShown() then
+		autoSlotKeystone()
+	end
+end
+
+M.SetupKeystoneAutoInsert = setupKeystoneAutoInsert
 
 local function isSenderMe(sender)
 	if not sender then return false end
@@ -377,7 +464,14 @@ ef:SetScript("OnEvent", function(_, event, ...)
 		M.SyncLiveConfig()
 
 		M:SetPosition(SimpleBossModsDB.pos.x or 0, SimpleBossModsDB.pos.y or 0)
-		M:ApplyGeneralConfig(SimpleBossModsDB.pos.x or 0, SimpleBossModsDB.pos.y or 0, SimpleBossModsDB.cfg.general.gap or 6)
+		M:ApplyGeneralConfig(
+			SimpleBossModsDB.pos.x or 0,
+			SimpleBossModsDB.pos.y or 0,
+			SimpleBossModsDB.cfg.general.gap or 6,
+			SimpleBossModsDB.cfg.general.mirror,
+			SimpleBossModsDB.cfg.general.barsBelow,
+			SimpleBossModsDB.cfg.general.autoInsertKeystone
+		)
 		M:ApplyIconConfig(SimpleBossModsDB.cfg.icons.size, SimpleBossModsDB.cfg.icons.fontSize, SimpleBossModsDB.cfg.icons.borderThickness)
 		M:ApplyBarConfig(SimpleBossModsDB.cfg.bars.width, SimpleBossModsDB.cfg.bars.height, SimpleBossModsDB.cfg.bars.fontSize, SimpleBossModsDB.cfg.bars.borderThickness)
 		M:ApplyIndicatorConfig(SimpleBossModsDB.cfg.indicators.iconSize or 0, SimpleBossModsDB.cfg.indicators.barSize or 0)
@@ -405,6 +499,13 @@ ef:SetScript("OnEvent", function(_, event, ...)
 		else
 			SLASH_SIMPLEBOSSMODSPULL1 = "/pull"
 			SLASH_SIMPLEBOSSMODSBREAK1 = "/break"
+		end
+	elseif event == "ADDON_LOADED" then
+		local name = ...
+		if name == "Blizzard_ChallengesUI" then
+			if M.SetupKeystoneAutoInsert then
+				M:SetupKeystoneAutoInsert()
+			end
 		end
 	elseif event == "ENCOUNTER_TIMELINE_EVENT_ADDED"
 		or event == "ENCOUNTER_TIMELINE_EVENT_REMOVED"
@@ -513,6 +614,7 @@ ef:SetScript("OnEvent", function(_, event, ...)
 end)
 
 ef:RegisterEvent("PLAYER_LOGIN")
+ef:RegisterEvent("ADDON_LOADED")
 ef:RegisterEvent("ENCOUNTER_TIMELINE_EVENT_ADDED")
 ef:RegisterEvent("ENCOUNTER_TIMELINE_EVENT_REMOVED")
 ef:RegisterEvent("ENCOUNTER_TIMELINE_EVENT_STATE_CHANGED")

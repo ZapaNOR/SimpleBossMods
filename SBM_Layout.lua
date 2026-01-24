@@ -16,6 +16,15 @@ local function sortByRemaining(a, b)
 	return (a.remaining or 999999) < (b.remaining or 999999)
 end
 
+local function isTestRec(rec)
+	if not rec then return false end
+	if rec.isTest then return true end
+	if not (M._testTicker or M._testTimelineEventIDSet) then return false end
+	if type(rec.eventInfo) ~= "table" then return false end
+	local label = U.safeGetLabel(rec.eventInfo)
+	return type(label) == "string" and label:find("^Test ") ~= nil
+end
+
 function M:layoutIcons()
 	local list = {}
 	for _, rec in pairs(self.events) do
@@ -33,14 +42,29 @@ function M:layoutIcons()
 		local col = idx % cols
 
 		local x = col * (L.ICON_SIZE + L.GAP)
-		local y = -row * (L.ICON_SIZE + L.GAP)
+		local y = row * (L.ICON_SIZE + L.GAP)
+		local point = "TOPLEFT"
+		if L.MIRROR then
+			x = -x
+			point = L.BARS_BELOW and "BOTTOMRIGHT" or "TOPRIGHT"
+		else
+			point = L.BARS_BELOW and "BOTTOMLEFT" or "TOPLEFT"
+		end
+		if not L.BARS_BELOW then
+			y = -y
+		end
 
 		local f = rec.iconFrame
 		f:SetSize(L.ICON_SIZE, L.ICON_SIZE)
 		M.ensureFullBorder(f.main, L.ICON_BORDER_THICKNESS)
 
 		f:ClearAllPoints()
-		f:SetPoint("TOPLEFT", frames.iconsParent, "TOPLEFT", x, y)
+		f:SetPoint(point, frames.iconsParent, point, x, y)
+		if isTestRec(rec) and M.ApplyTestIndicators then
+			M:ApplyTestIndicators(f, true)
+		elseif f.indicatorsFrame and f.indicatorsFrame.__indicatorTextures then
+			M.layoutIconIndicators(f, f.indicatorsFrame.__indicatorTextures)
+		end
 	end
 
 	local w = (cols > 0) and (cols * L.ICON_SIZE + (cols - 1) * L.GAP) or 1
@@ -64,20 +88,42 @@ function M:layoutBars()
 		f:SetSize(L.BAR_WIDTH, L.BAR_HEIGHT)
 		M.ensureFullBorder(f, L.BAR_BORDER_THICKNESS)
 
-		f.leftFrame:SetWidth(L.BAR_HEIGHT)
-		f.iconFrame:SetSize(L.BAR_HEIGHT, L.BAR_HEIGHT)
-		M.ensureRightDivider(f.leftFrame, L.BAR_BORDER_THICKNESS)
+		if M.applyBarMirror then
+			M.applyBarMirror(f)
+		else
+			f.leftFrame:SetWidth(L.BAR_HEIGHT)
+			f.iconFrame:SetSize(L.BAR_HEIGHT, L.BAR_HEIGHT)
+			M.ensureRightDivider(f.leftFrame, L.BAR_BORDER_THICKNESS)
+		end
 
 		M.applyBarFont(f.txt)
 		M.applyBarFont(f.rt)
 
-		M.applyIndicatorsToBarEnd(f, rec.id)
+		if rec.isManual then
+			-- no secure timeline indicators for manual timers
+		elseif isTestRec(rec) and M.ApplyTestIndicators then
+			M:ApplyTestIndicators(f, false)
+		else
+			M.applyIndicatorsToBarEnd(f, rec.id)
+		end
 		if f.endIndicatorsFrame then
 			maxEndW = math.max(maxEndW, f.endIndicatorsFrame:GetWidth() or 0)
 		end
 
 		f:ClearAllPoints()
-		f:SetPoint("BOTTOMLEFT", frames.barsParent, "BOTTOMLEFT", 0, y)
+		if L.BARS_BELOW then
+			if L.MIRROR then
+				f:SetPoint("TOPRIGHT", frames.barsParent, "TOPRIGHT", 0, -y)
+			else
+				f:SetPoint("TOPLEFT", frames.barsParent, "TOPLEFT", 0, -y)
+			end
+		else
+			if L.MIRROR then
+				f:SetPoint("BOTTOMRIGHT", frames.barsParent, "BOTTOMRIGHT", 0, y)
+			else
+				f:SetPoint("BOTTOMLEFT", frames.barsParent, "BOTTOMLEFT", 0, y)
+			end
+		end
 		y = y + L.BAR_HEIGHT + L.GAP
 	end
 
@@ -87,9 +133,36 @@ function M:layoutBars()
 end
 
 function M:LayoutAll()
-	-- bars anchored above icon TOP, using shared GAP
+	frames.iconsParent:ClearAllPoints()
+	if L.MIRROR then
+		if L.BARS_BELOW then
+			frames.iconsParent:SetPoint("BOTTOMRIGHT", frames.anchor, "CENTER", 0, 0)
+		else
+			frames.iconsParent:SetPoint("TOPRIGHT", frames.anchor, "CENTER", 0, 0)
+		end
+	else
+		if L.BARS_BELOW then
+			frames.iconsParent:SetPoint("BOTTOMLEFT", frames.anchor, "CENTER", 0, 0)
+		else
+			frames.iconsParent:SetPoint("TOPLEFT", frames.anchor, "CENTER", 0, 0)
+		end
+	end
+
+	-- bars anchored above/below icon group, using shared GAP
 	frames.barsParent:ClearAllPoints()
-	frames.barsParent:SetPoint("BOTTOMLEFT", frames.iconsParent, "TOPLEFT", 0, L.GAP)
+	if L.MIRROR then
+		if L.BARS_BELOW then
+			frames.barsParent:SetPoint("TOPRIGHT", frames.iconsParent, "BOTTOMRIGHT", 0, -L.GAP)
+		else
+			frames.barsParent:SetPoint("BOTTOMRIGHT", frames.iconsParent, "TOPRIGHT", 0, L.GAP)
+		end
+	else
+		if L.BARS_BELOW then
+			frames.barsParent:SetPoint("TOPLEFT", frames.iconsParent, "BOTTOMLEFT", 0, -L.GAP)
+		else
+			frames.barsParent:SetPoint("BOTTOMLEFT", frames.iconsParent, "TOPLEFT", 0, L.GAP)
+		end
+	end
 
 	self:layoutIcons()
 	self:layoutBars()
@@ -235,13 +308,13 @@ function M:ensureBar(rec)
 				self.sb:SetMinMaxValues(0, dur)
 				self.sb:SetValue(U.clamp(rem, 0, dur))
 			else
-				self.sb:SetMinMaxValues(0, C.THRESHOLD_TO_BAR)
-				self.sb:SetValue(U.clamp(rem, 0, C.THRESHOLD_TO_BAR))
+				self.sb:SetMinMaxValues(0, L.THRESHOLD_TO_BAR)
+				self.sb:SetValue(U.clamp(rem, 0, L.THRESHOLD_TO_BAR))
 			end
 			self.rt:SetText(U.formatTimeBar(rem))
 		else
-			local shown = U.clamp(rem, 0, C.THRESHOLD_TO_BAR)
-			self.sb:SetMinMaxValues(0, C.THRESHOLD_TO_BAR)
+			local shown = U.clamp(rem, 0, L.THRESHOLD_TO_BAR)
+			self.sb:SetMinMaxValues(0, L.THRESHOLD_TO_BAR)
 			self.sb:SetValue(shown)
 			self.rt:SetText(U.formatTimeBar(shown))
 		end
@@ -267,7 +340,7 @@ function M:updateRecord(eventID, eventInfo, remaining)
 
 	if rec.forceBar then
 		self:ensureBar(rec)
-	elseif type(rec.remaining) == "number" and rec.remaining <= C.THRESHOLD_TO_BAR then
+	elseif type(rec.remaining) == "number" and rec.remaining <= L.THRESHOLD_TO_BAR then
 		self:ensureBar(rec)
 	else
 		self:ensureIcon(rec)
@@ -289,7 +362,7 @@ function M:updateRecord(eventID, eventInfo, remaining)
 
 		if rec.isManual then
 			-- no secure timeline indicators for manual timers
-		elseif rec.isTest and M.ApplyTestIndicators then
+		elseif isTestRec(rec) and M.ApplyTestIndicators then
 			M:ApplyTestIndicators(f, true)
 		else
 			M.applyIndicatorsToIconFrame(f, rec.id)
@@ -303,7 +376,7 @@ function M:updateRecord(eventID, eventInfo, remaining)
 				rec.barFrame.sb:SetMinMaxValues(0, rec.duration)
 				rec.barFrame.sb:SetValue(U.clamp(rec.remaining or rec.duration, 0, rec.duration))
 			end
-		elseif rec.isTest and M.ApplyTestIndicators then
+		elseif isTestRec(rec) and M.ApplyTestIndicators then
 			M:ApplyTestIndicators(rec.barFrame, false)
 		else
 			M.applyIndicatorsToBarEnd(rec.barFrame, rec.id)

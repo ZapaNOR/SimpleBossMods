@@ -20,12 +20,36 @@ anchor:SetPoint("CENTER", UIParent, "CENTER", SimpleBossModsDB.pos.x or 0, (Simp
 frames.anchor = anchor
 
 local iconsParent = CreateFrame("Frame", ADDON_NAME .. "_Icons", UIParent)
-iconsParent:SetPoint("TOPLEFT", anchor, "CENTER", 0, 0)
+if L.MIRROR then
+	if L.BARS_BELOW then
+		iconsParent:SetPoint("BOTTOMRIGHT", anchor, "CENTER", 0, 0)
+	else
+		iconsParent:SetPoint("TOPRIGHT", anchor, "CENTER", 0, 0)
+	end
+else
+	if L.BARS_BELOW then
+		iconsParent:SetPoint("BOTTOMLEFT", anchor, "CENTER", 0, 0)
+	else
+		iconsParent:SetPoint("TOPLEFT", anchor, "CENTER", 0, 0)
+	end
+end
 iconsParent:SetSize(1, 1)
 frames.iconsParent = iconsParent
 
 local barsParent = CreateFrame("Frame", ADDON_NAME .. "_Bars", UIParent)
-barsParent:SetPoint("BOTTOMLEFT", iconsParent, "TOPLEFT", 0, L.GAP)
+if L.MIRROR then
+	if L.BARS_BELOW then
+		barsParent:SetPoint("TOPRIGHT", iconsParent, "BOTTOMRIGHT", 0, -L.GAP)
+	else
+		barsParent:SetPoint("BOTTOMRIGHT", iconsParent, "TOPRIGHT", 0, L.GAP)
+	end
+else
+	if L.BARS_BELOW then
+		barsParent:SetPoint("TOPLEFT", iconsParent, "BOTTOMLEFT", 0, -L.GAP)
+	else
+		barsParent:SetPoint("BOTTOMLEFT", iconsParent, "TOPLEFT", 0, L.GAP)
+	end
+end
 barsParent:SetSize(1, 1)
 frames.barsParent = barsParent
 
@@ -111,8 +135,27 @@ local function ensureRightDivider(owner, thickness)
 	bf.__rightDivider = div
 end
 
+local function ensureLeftDivider(owner, thickness)
+	local bf = ensureBorderFrame(owner)
+
+	if bf.__leftDivider then
+		bf.__leftDivider:SetWidth(thickness or 1)
+		return
+	end
+
+	local t = thickness or 1
+	local div = bf:CreateTexture(nil, "OVERLAY")
+	div:SetColorTexture(0, 0, 0, 1)
+	div:SetPoint("TOPLEFT", owner, "TOPLEFT", 0, 0)
+	div:SetPoint("BOTTOMLEFT", owner, "BOTTOMLEFT", 0, 0)
+	div:SetWidth(t)
+
+	bf.__leftDivider = div
+end
+
 M.ensureFullBorder = ensureFullBorder
 M.ensureRightDivider = ensureRightDivider
+M.ensureLeftDivider = ensureLeftDivider
 
 -- =========================
 -- Indicator helpers
@@ -132,6 +175,7 @@ local function layoutIconIndicators(iconFrame, textures)
 	-- bottom-right inside icon, 2x3 grid (usually you won't have all)
 	local s = U.iconIndicatorSize()
 	local gap = U.clamp(math.floor(s * 0.12 + 0.5) + 1, 2, 4)
+	local mirror = L.MIRROR
 
 	-- Place as:
 	-- [4][5][6]
@@ -145,11 +189,15 @@ local function layoutIconIndicators(iconFrame, textures)
 		local col = idx % 3
 		local row = math.floor(idx / 3) -- 0 or 1
 
-		local x = -(col * (s + gap))
+		local x = col * (s + gap)
 		local y =  (row * (s + gap))
 
 		tex:ClearAllPoints()
-		tex:SetPoint("BOTTOMRIGHT", iconFrame.main, "BOTTOMRIGHT", -3 + x, 3 + y)
+		if mirror then
+			tex:SetPoint("BOTTOMLEFT", iconFrame.main, "BOTTOMLEFT", 3 + x, 3 + y)
+		else
+			tex:SetPoint("BOTTOMRIGHT", iconFrame.main, "BOTTOMRIGHT", -3 - x, 3 + y)
+		end
 	end
 end
 
@@ -157,6 +205,7 @@ local function layoutBarIndicators(barFrame, textures)
 	local size = U.barIndicatorSize()
 	local gap = 3
 	local totalW = C.INDICATOR_MAX * size + (C.INDICATOR_MAX - 1) * gap
+	local mirror = L.MIRROR
 	barFrame.endIndicatorsFrame:SetWidth(totalW)
 
 	for i = 1, C.INDICATOR_MAX do
@@ -164,7 +213,11 @@ local function layoutBarIndicators(barFrame, textures)
 		local x = (i - 1) * (size + gap)
 		tex:ClearAllPoints()
 		tex:SetSize(size, size)
-		tex:SetPoint("LEFT", barFrame.endIndicatorsFrame, "LEFT", x, 0)
+		if mirror then
+			tex:SetPoint("RIGHT", barFrame.endIndicatorsFrame, "RIGHT", -x, 0)
+		else
+			tex:SetPoint("LEFT", barFrame.endIndicatorsFrame, "LEFT", x, 0)
+		end
 	end
 end
 
@@ -226,6 +279,98 @@ end
 M.applyIndicatorsToIconFrame = applyIndicatorsToIconFrame
 M.applyIndicatorsToBarEnd = applyIndicatorsToBarEnd
 
+local function applyBarMirror(f)
+	if not f then return end
+
+	local iconOnRight = L.MIRROR
+	if L.BAR_ICON_SWAP then
+		iconOnRight = not iconOnRight
+	end
+	local iconVisible = not L.BAR_ICON_HIDDEN
+
+	f.leftFrame:SetWidth(iconVisible and L.BAR_HEIGHT or 0)
+	f.leftFrame:SetShown(iconVisible)
+	f.iconFrame:SetSize(iconVisible and L.BAR_HEIGHT or 0, iconVisible and L.BAR_HEIGHT or 0)
+	f.iconFrame:SetShown(iconVisible)
+
+	f.leftFrame:ClearAllPoints()
+	if iconOnRight then
+		f.leftFrame:SetPoint("RIGHT", f, "RIGHT", 0, 0)
+		f.leftFrame:SetPoint("TOP", f, "TOP", 0, 0)
+		f.leftFrame:SetPoint("BOTTOM", f, "BOTTOM", 0, 0)
+		ensureLeftDivider(f.leftFrame, L.BAR_BORDER_THICKNESS)
+	else
+		f.leftFrame:SetPoint("LEFT", f, "LEFT", 0, 0)
+		f.leftFrame:SetPoint("TOP", f, "TOP", 0, 0)
+		f.leftFrame:SetPoint("BOTTOM", f, "BOTTOM", 0, 0)
+		ensureRightDivider(f.leftFrame, L.BAR_BORDER_THICKNESS)
+	end
+	if f.leftFrame.__borderFrame then
+		if f.leftFrame.__borderFrame.__rightDivider then
+			f.leftFrame.__borderFrame.__rightDivider:SetShown(iconVisible and not iconOnRight)
+		end
+		if f.leftFrame.__borderFrame.__leftDivider then
+			f.leftFrame.__borderFrame.__leftDivider:SetShown(iconVisible and iconOnRight)
+		end
+	end
+
+	f.sb:ClearAllPoints()
+	if iconVisible then
+		if iconOnRight then
+			f.sb:SetPoint("RIGHT", f.leftFrame, "LEFT", 0, 0)
+			f.sb:SetPoint("LEFT", f, "LEFT", 0, 0)
+		else
+			f.sb:SetPoint("LEFT", f.leftFrame, "RIGHT", 0, 0)
+			f.sb:SetPoint("RIGHT", f, "RIGHT", 0, 0)
+		end
+	else
+		f.sb:SetPoint("LEFT", f, "LEFT", 0, 0)
+		f.sb:SetPoint("RIGHT", f, "RIGHT", 0, 0)
+	end
+	f.sb:SetPoint("TOP", f, "TOP", 0, 0)
+	f.sb:SetPoint("BOTTOM", f, "BOTTOM", 0, 0)
+
+	if f.sb.SetReverseFill then
+		f.sb:SetReverseFill(L.MIRROR)
+	elseif f.sb.SetReverse then
+		f.sb:SetReverse(L.MIRROR)
+	end
+
+	if f.endIndicatorsFrame then
+		f.endIndicatorsFrame:ClearAllPoints()
+		if L.MIRROR then
+			f.endIndicatorsFrame:SetPoint("RIGHT", f, "LEFT", -C.BAR_END_INDICATOR_GAP_X, 0)
+		else
+			f.endIndicatorsFrame:SetPoint("LEFT", f, "RIGHT", C.BAR_END_INDICATOR_GAP_X, 0)
+		end
+		f.endIndicatorsFrame:SetPoint("TOP", f, "TOP", 0, 0)
+		f.endIndicatorsFrame:SetPoint("BOTTOM", f, "BOTTOM", 0, 0)
+	end
+
+	if f.txt then
+		f.txt:ClearAllPoints()
+		if L.MIRROR then
+			f.txt:SetPoint("RIGHT", f.sb, "RIGHT", -6, 0)
+			f.txt:SetJustifyH("RIGHT")
+		else
+			f.txt:SetPoint("LEFT", f.sb, "LEFT", 6, 0)
+			f.txt:SetJustifyH("LEFT")
+		end
+	end
+	if f.rt then
+		f.rt:ClearAllPoints()
+		if L.MIRROR then
+			f.rt:SetPoint("LEFT", f.sb, "LEFT", 6, 0)
+			f.rt:SetJustifyH("LEFT")
+		else
+			f.rt:SetPoint("RIGHT", f.sb, "RIGHT", -6, 0)
+			f.rt:SetJustifyH("RIGHT")
+		end
+	end
+end
+
+M.applyBarMirror = applyBarMirror
+
 -- =========================
 -- Bar fill
 -- =========================
@@ -236,7 +381,10 @@ local function setBarFillFlat(barFrame, r, g, b, a)
 	local tex = barFrame.sb:GetStatusBarTexture()
 	barFrame.sbTex = tex
 	barFrame.sb:SetStatusBarColor(r, g, b, a or 1)
-	if tex then tex:SetDrawLayer("ARTWORK") end
+	if tex then
+		tex:SetDrawLayer("ARTWORK")
+		tex:SetVertexColor(r, g, b, a or 1)
+	end
 end
 
 M.setBarFillFlat = setBarFillFlat
@@ -348,7 +496,8 @@ local function acquireBar()
 
 		local bg = f:CreateTexture(nil, "BACKGROUND")
 		bg:SetAllPoints()
-		bg:SetColorTexture(C.BAR_BG_R, C.BAR_BG_G, C.BAR_BG_B, C.BAR_BG_A)
+		bg:SetColorTexture(L.BAR_BG_R, L.BAR_BG_G, L.BAR_BG_B, 1)
+		bg:SetAlpha(L.BAR_BG_A)
 		f.bg = bg
 
 		local leftFrame = CreateFrame("Frame", nil, f)
@@ -372,8 +521,8 @@ local function acquireBar()
 		sb:SetPoint("BOTTOM", f, "BOTTOM", 0, 0)
 		sb:SetPoint("RIGHT", f, "RIGHT", 0, 0)
 		sb:SetStatusBarTexture(C.BAR_TEX_DEFAULT)
-		sb:SetMinMaxValues(0, C.THRESHOLD_TO_BAR)
-		sb:SetValue(C.THRESHOLD_TO_BAR)
+		sb:SetMinMaxValues(0, L.THRESHOLD_TO_BAR)
+		sb:SetValue(L.THRESHOLD_TO_BAR)
 		f.sb = sb
 
 		f.sbTex = sb:GetStatusBarTexture()
@@ -413,10 +562,12 @@ local function acquireBar()
 
 	f:SetSize(L.BAR_WIDTH, L.BAR_HEIGHT)
 	ensureFullBorder(f, L.BAR_BORDER_THICKNESS)
+	if f.bg then
+		f.bg:SetColorTexture(L.BAR_BG_R, L.BAR_BG_G, L.BAR_BG_B, 1)
+		f.bg:SetAlpha(L.BAR_BG_A)
+	end
 
-	f.leftFrame:SetWidth(L.BAR_HEIGHT)
-	f.iconFrame:SetSize(L.BAR_HEIGHT, L.BAR_HEIGHT)
-	ensureRightDivider(f.leftFrame, L.BAR_BORDER_THICKNESS)
+	applyBarMirror(f)
 
 	if f.endIndicatorsFrame then
 		f.endIndicatorsFrame:SetWidth(1)
@@ -437,8 +588,8 @@ local function releaseBar(f)
 	f:ClearAllPoints()
 	f.__id = nil
 
-	f.sb:SetMinMaxValues(0, C.THRESHOLD_TO_BAR)
-	f.sb:SetValue(C.THRESHOLD_TO_BAR)
+	f.sb:SetMinMaxValues(0, L.THRESHOLD_TO_BAR)
+	f.sb:SetValue(L.THRESHOLD_TO_BAR)
 	setBarFillFlat(f, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
 
 	f.txt:SetText("")

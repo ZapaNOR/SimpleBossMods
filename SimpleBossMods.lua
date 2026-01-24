@@ -41,25 +41,39 @@ C.INDICATOR_MASK = 1023 -- all bits
 -- Bars: indicator icons outside to the right
 C.BAR_END_INDICATOR_GAP_X = 6
 
--- Default bar color: #FF9800
+-- Default bar colors
 C.BAR_FG_R, C.BAR_FG_G, C.BAR_FG_B, C.BAR_FG_A = (255/255), (152/255), (0/255), 1.0
-C.BAR_BG_R, C.BAR_BG_G, C.BAR_BG_B, C.BAR_BG_A = 0.0, 0.0, 0.0, 0.80
+C.BAR_BG_R, C.BAR_BG_G, C.BAR_BG_B, C.BAR_BG_A = 0.0, 0.0, 0.0, 0.90
 
 M.Defaults = M.Defaults or {
 	pos = { x = 500, y = 50 },
 	cfg = {
-		general = { gap = 8 },
+		general = {
+			gap = 8,
+			mirror = false,
+			barsBelow = false,
+			autoInsertKeystone = false,
+			thresholdToBar = C.THRESHOLD_TO_BAR,
+		},
 		icons = { size = 64, fontSize = 32, borderThickness = 2 },
 		bars = {
 			width = 352,
 			height = 36,
 			fontSize = 16,
 			borderThickness = 2,
+			swapIconSide = false,
+			hideIcon = false,
 			color = {
 				r = C.BAR_FG_R,
 				g = C.BAR_FG_G,
 				b = C.BAR_FG_B,
 				a = C.BAR_FG_A,
+			},
+			bgColor = {
+				r = C.BAR_BG_R,
+				g = C.BAR_BG_G,
+				b = C.BAR_BG_B,
+				a = C.BAR_BG_A,
 			},
 		},
 		indicators = { iconSize = 10, barSize = 20 },
@@ -73,7 +87,25 @@ function M:EnsureDefaults()
 	SimpleBossModsDB.manualTimers = SimpleBossModsDB.manualTimers or {}
 
 	local cfg = SimpleBossModsDB.cfg
-	cfg.general = cfg.general or { gap = M.Defaults.cfg.general.gap }
+	cfg.general = cfg.general or {
+		gap = M.Defaults.cfg.general.gap,
+		mirror = M.Defaults.cfg.general.mirror,
+		barsBelow = M.Defaults.cfg.general.barsBelow,
+		autoInsertKeystone = M.Defaults.cfg.general.autoInsertKeystone,
+		thresholdToBar = M.Defaults.cfg.general.thresholdToBar,
+	}
+	if cfg.general.mirror == nil then
+		cfg.general.mirror = M.Defaults.cfg.general.mirror
+	end
+	if cfg.general.barsBelow == nil then
+		cfg.general.barsBelow = M.Defaults.cfg.general.barsBelow
+	end
+	if cfg.general.autoInsertKeystone == nil then
+		cfg.general.autoInsertKeystone = M.Defaults.cfg.general.autoInsertKeystone
+	end
+	if cfg.general.thresholdToBar == nil then
+		cfg.general.thresholdToBar = M.Defaults.cfg.general.thresholdToBar
+	end
 	cfg.icons = cfg.icons or {
 		size = M.Defaults.cfg.icons.size,
 		fontSize = M.Defaults.cfg.icons.fontSize,
@@ -84,13 +116,42 @@ function M:EnsureDefaults()
 		height = M.Defaults.cfg.bars.height,
 		fontSize = M.Defaults.cfg.bars.fontSize,
 		borderThickness = M.Defaults.cfg.bars.borderThickness,
+		swapIconSide = M.Defaults.cfg.bars.swapIconSide,
+		hideIcon = M.Defaults.cfg.bars.hideIcon,
 	}
+	if cfg.bars.swapIconSide == nil then
+		cfg.bars.swapIconSide = M.Defaults.cfg.bars.swapIconSide
+	end
+	if cfg.bars.hideIcon == nil then
+		cfg.bars.hideIcon = M.Defaults.cfg.bars.hideIcon
+	end
 	cfg.bars.color = cfg.bars.color or {
 		r = M.Defaults.cfg.bars.color.r,
 		g = M.Defaults.cfg.bars.color.g,
 		b = M.Defaults.cfg.bars.color.b,
 		a = M.Defaults.cfg.bars.color.a,
 	}
+	cfg.bars.bgColor = cfg.bars.bgColor or {
+		r = M.Defaults.cfg.bars.bgColor.r,
+		g = M.Defaults.cfg.bars.bgColor.g,
+		b = M.Defaults.cfg.bars.bgColor.b,
+		a = M.Defaults.cfg.bars.bgColor.a,
+	}
+	local function approx(a, b)
+		if type(a) ~= "number" or type(b) ~= "number" then return false end
+		return math.abs(a - b) < 0.0001
+	end
+	local function repairColor(color, defR, defG, defB, defA)
+		if type(color.r) ~= "number" then color.r = defR end
+		if type(color.g) ~= "number" then color.g = defG end
+		if type(color.b) ~= "number" then color.b = defB end
+		if type(color.a) ~= "number" then color.a = defA end
+		if color.a == 0 and approx(color.r, defR) and approx(color.g, defG) and approx(color.b, defB) then
+			color.a = defA
+		end
+	end
+	repairColor(cfg.bars.color, M.Defaults.cfg.bars.color.r, M.Defaults.cfg.bars.color.g, M.Defaults.cfg.bars.color.b, M.Defaults.cfg.bars.color.a)
+	repairColor(cfg.bars.bgColor, M.Defaults.cfg.bars.bgColor.r, M.Defaults.cfg.bars.bgColor.g, M.Defaults.cfg.bars.bgColor.b, M.Defaults.cfg.bars.bgColor.a)
 	cfg.indicators = cfg.indicators or {
 		iconSize = M.Defaults.cfg.indicators.iconSize,
 		barSize = M.Defaults.cfg.indicators.barSize,
@@ -122,6 +183,10 @@ function M.SyncLiveConfig()
 	local inc = SimpleBossModsDB.cfg.indicators
 
 	L.GAP = tonumber(gc.gap) or 6
+	L.MIRROR = gc.mirror and true or false
+	L.BARS_BELOW = gc.barsBelow and true or false
+	L.AUTO_INSERT_KEYSTONE = gc.autoInsertKeystone and true or false
+	L.THRESHOLD_TO_BAR = U.clamp(tonumber(gc.thresholdToBar) or C.THRESHOLD_TO_BAR, 0.1, 600)
 
 	L.ICON_SIZE = ic.size
 	L.ICON_FONT_SIZE = ic.fontSize
@@ -131,11 +196,19 @@ function M.SyncLiveConfig()
 	L.BAR_HEIGHT = bc.height
 	L.BAR_FONT_SIZE = bc.fontSize
 	L.BAR_BORDER_THICKNESS = bc.borderThickness
+	L.BAR_ICON_SWAP = bc.swapIconSide and true or false
+	L.BAR_ICON_HIDDEN = bc.hideIcon and true or false
 	local barColor = bc.color or {}
 	L.BAR_FG_R = U.clamp(tonumber(barColor.r) or C.BAR_FG_R, 0, 1)
 	L.BAR_FG_G = U.clamp(tonumber(barColor.g) or C.BAR_FG_G, 0, 1)
 	L.BAR_FG_B = U.clamp(tonumber(barColor.b) or C.BAR_FG_B, 0, 1)
-	L.BAR_FG_A = 1.0
+	L.BAR_FG_A = U.clamp(tonumber(barColor.a) or C.BAR_FG_A, 0, 1)
+
+	local barBg = bc.bgColor or {}
+	L.BAR_BG_R = U.clamp(tonumber(barBg.r) or C.BAR_BG_R, 0, 1)
+	L.BAR_BG_G = U.clamp(tonumber(barBg.g) or C.BAR_BG_G, 0, 1)
+	L.BAR_BG_B = U.clamp(tonumber(barBg.b) or C.BAR_BG_B, 0, 1)
+	L.BAR_BG_A = U.clamp(tonumber(barBg.a) or C.BAR_BG_A, 0, 1)
 
 	L.ICON_INDICATOR_SIZE = tonumber(inc.iconSize) or 0
 	L.BAR_INDICATOR_SIZE = tonumber(inc.barSize) or 0
