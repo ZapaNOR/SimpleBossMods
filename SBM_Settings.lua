@@ -1175,6 +1175,11 @@ function M:CreateSettingsWindow()
 	frame:EnableResize(false)
 	frame:SetCallback("OnClose", function(widget)
 		addon:StopTest()
+		if addon._settingsTestBar then
+			addon._settingsTestBar:Hide()
+			addon._settingsTestBar:SetParent(nil)
+			addon._settingsTestBar = nil
+		end
 		AG:Release(widget)
 		isGUIOpen = false
 		addon._settingsWindow = nil
@@ -1206,6 +1211,7 @@ function M:CreateSettingsWindow()
 	stopTestBtn:SetScript("OnClick", function() addon:StopTest() end)
 
 	testBar:SetWidth(startTestBtn:GetWidth() + stopTestBtn:GetWidth() + 6)
+	addon._settingsTestBar = testBar
 
 	if statusbg then
 		statusbg:ClearAllPoints()
