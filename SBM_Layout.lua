@@ -8,6 +8,9 @@ local C = M.Const
 local L = M.Live
 local U = M.Util
 local frames = M.frames
+local function isSecretValue(value)
+	return type(issecretvalue) == "function" and issecretvalue(value)
+end
 
 -- =========================
 -- Layout
@@ -22,6 +25,7 @@ local function isTestRec(rec)
 	if not (M._testTicker or M._testTimelineEventIDSet) then return false end
 	if type(rec.eventInfo) ~= "table" then return false end
 	local label = U.safeGetLabel(rec.eventInfo)
+	if isSecretValue(label) then return false end
 	return type(label) == "string" and label:find("^Test ") ~= nil
 end
 
@@ -215,11 +219,31 @@ M._updateRecTiming = updateRecTiming
 local function refreshIconTexture(rec)
 	local f = rec.iconFrame
 	if not f then return end
+	if isSecretValue(rec._iconFileID) then
+		rec._iconFileID = nil
+	end
 	local iconFileID = U.safeGetIconFileID(rec.eventInfo)
-	if iconFileID then
+	if isSecretValue(iconFileID) then
 		f.tex:SetTexture(iconFileID)
-		local z = C.ICON_ZOOM
-		f.tex:SetTexCoord(z, 1 - z, z, 1 - z)
+		if iconFileID then
+			local z = C.ICON_ZOOM
+			f.tex:SetTexCoord(z, 1 - z, z, 1 - z)
+		else
+			f.tex:SetTexCoord(0, 1, 0, 1)
+		end
+		rec._iconFileID = nil
+		return
+	end
+	if iconFileID ~= rec._iconFileID then
+		rec._iconFileID = iconFileID
+		if iconFileID then
+			f.tex:SetTexture(iconFileID)
+			local z = C.ICON_ZOOM
+			f.tex:SetTexCoord(z, 1 - z, z, 1 - z)
+		else
+			f.tex:SetTexture(nil)
+			f.tex:SetTexCoord(0, 1, 0, 1)
+		end
 	end
 end
 
@@ -228,17 +252,42 @@ local function refreshBarLabelAndIcon(rec)
 	if not bar then return end
 
 	local label = U.safeGetLabel(rec.eventInfo)
-	if type(issecretvalue) == "function" and issecretvalue(label) then
+	if isSecretValue(rec._barLabel) then
+		rec._barLabel = nil
+	end
+	if isSecretValue(label) then
 		bar.txt:SetText(label)
-	elseif label ~= "" then
+		rec._barLabel = nil
+	elseif label ~= "" and label ~= rec._barLabel then
 		bar.txt:SetText(label)
+		rec._barLabel = label
 	end
 
+	if isSecretValue(rec._barIconFileID) then
+		rec._barIconFileID = nil
+	end
 	local iconFileID = U.safeGetIconFileID(rec.eventInfo)
-	if iconFileID then
+	if isSecretValue(iconFileID) then
 		bar.icon:SetTexture(iconFileID)
-		local z = C.ICON_ZOOM
-		bar.icon:SetTexCoord(z, 1 - z, z, 1 - z)
+		if iconFileID then
+			local z = C.ICON_ZOOM
+			bar.icon:SetTexCoord(z, 1 - z, z, 1 - z)
+		else
+			bar.icon:SetTexCoord(0, 1, 0, 1)
+		end
+		rec._barIconFileID = nil
+		return
+	end
+	if iconFileID ~= rec._barIconFileID then
+		rec._barIconFileID = iconFileID
+		if iconFileID then
+			bar.icon:SetTexture(iconFileID)
+			local z = C.ICON_ZOOM
+			bar.icon:SetTexCoord(z, 1 - z, z, 1 - z)
+		else
+			bar.icon:SetTexture(nil)
+			bar.icon:SetTexCoord(0, 1, 0, 1)
+		end
 	end
 end
 
@@ -254,9 +303,10 @@ function M:ensureIcon(rec)
 
 	icon.tex:SetTexture(nil)
 	icon.tex:SetTexCoord(0, 1, 0, 1)
+	rec._iconFileID = nil
+	rec._indicatorAppliedIcon = false
+	rec._indicatorDirty = true
 	refreshIconTexture(rec)
-
-	M.applyIndicatorsToIconFrame(icon, rec.id)
 end
 
 function M:ensureBar(rec)
@@ -273,9 +323,11 @@ function M:ensureBar(rec)
 	bar.txt:SetText("Ability")
 	bar.icon:SetTexture(nil)
 	bar.icon:SetTexCoord(0, 1, 0, 1)
+	rec._barIconFileID = nil
+	rec._barLabel = nil
+	rec._indicatorAppliedBar = false
+	rec._indicatorDirty = true
 	refreshBarLabelAndIcon(rec)
-
-	M.applyIndicatorsToBarEnd(bar, rec.id)
 	M.setBarFillFlat(bar, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
 
 	bar:SetScript("OnUpdate", function(self)
@@ -334,6 +386,27 @@ function M:updateRecord(eventID, eventInfo, remaining)
 	rec.eventInfo = eventInfo or rec.eventInfo
 	rec.remaining = remaining or rec.remaining
 
+	local isTest = isTestRec(rec)
+	if not rec.isManual and not isTest and rec.eventInfo and type(rec.eventInfo.icons) == "number" then
+		if isSecretValue(rec._indicatorMask) then
+			rec._indicatorMask = nil
+		end
+		if isSecretValue(rec.eventInfo.icons) then
+			if not rec._indicatorMaskSecret then
+				rec._indicatorMaskSecret = true
+				rec._indicatorDirty = true
+			end
+		else
+			if rec._indicatorMaskSecret then
+				rec._indicatorMaskSecret = false
+			end
+			if rec._indicatorMask ~= rec.eventInfo.icons then
+				rec._indicatorMask = rec.eventInfo.icons
+				rec._indicatorDirty = true
+			end
+		end
+	end
+
 	if type(rec.remaining) == "number" then
 		updateRecTiming(rec, rec.remaining)
 	end
@@ -362,10 +435,14 @@ function M:updateRecord(eventID, eventInfo, remaining)
 
 		if rec.isManual then
 			-- no secure timeline indicators for manual timers
-		elseif isTestRec(rec) and M.ApplyTestIndicators then
+		elseif isTest and M.ApplyTestIndicators then
 			M:ApplyTestIndicators(f, true)
 		else
-			M.applyIndicatorsToIconFrame(f, rec.id)
+			if rec._indicatorDirty or not rec._indicatorAppliedIcon then
+				M.applyIndicatorsToIconFrame(f, rec.id)
+				rec._indicatorAppliedIcon = true
+				rec._indicatorDirty = false
+			end
 		end
 	end
 
@@ -376,10 +453,14 @@ function M:updateRecord(eventID, eventInfo, remaining)
 				rec.barFrame.sb:SetMinMaxValues(0, rec.duration)
 				rec.barFrame.sb:SetValue(U.clamp(rec.remaining or rec.duration, 0, rec.duration))
 			end
-		elseif isTestRec(rec) and M.ApplyTestIndicators then
+		elseif isTest and M.ApplyTestIndicators then
 			M:ApplyTestIndicators(rec.barFrame, false)
 		else
-			M.applyIndicatorsToBarEnd(rec.barFrame, rec.id)
+			if rec._indicatorDirty or not rec._indicatorAppliedBar then
+				M.applyIndicatorsToBarEnd(rec.barFrame, rec.id)
+				rec._indicatorAppliedBar = true
+				rec._indicatorDirty = false
+			end
 		end
 		M.setBarFillFlat(rec.barFrame, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
 	end
@@ -391,12 +472,21 @@ end
 function M:Tick()
 	if not self.enabled then return end
 	if self._testTicker then return end
+	if self.UpdatePrivateAuraFrames then
+		self:UpdatePrivateAuraFrames(true)
+	end
 	local hasTimeline = C_EncounterTimeline
-		and C_EncounterTimeline.HasActiveEvents
 		and C_EncounterTimeline.GetEventList
 	if not hasTimeline then return end
 
-	if not C_EncounterTimeline.HasActiveEvents() then
+	local list
+	do
+		local ok, result = pcall(C_EncounterTimeline.GetEventList)
+		if ok then
+			list = result
+		end
+	end
+	if type(list) ~= "table" or #list == 0 then
 		if next(self.events) ~= nil then
 			local removed = false
 			for id, rec in pairs(self.events) do
@@ -412,9 +502,6 @@ function M:Tick()
 		return
 	end
 
-	local list = C_EncounterTimeline.GetEventList()
-	if type(list) ~= "table" then return end
-
 	local seen = {}
 	for _, eventID in ipairs(list) do
 		seen[eventID] = true
@@ -423,9 +510,9 @@ function M:Tick()
 			rec = { id = eventID }
 			self.events[eventID] = rec
 		end
-		rec.isTest = self._testTimelineEventIDSet and self._testTimelineEventIDSet[eventID] or false
 
 		local info = C_EncounterTimeline.GetEventInfo and C_EncounterTimeline.GetEventInfo(eventID) or nil
+		rec.isTest = self._testTimelineEventIDSet and self._testTimelineEventIDSet[eventID] or false
 		local rem = C_EncounterTimeline.GetEventTimeRemaining and C_EncounterTimeline.GetEventTimeRemaining(eventID) or nil
 		self:updateRecord(eventID, info, rem)
 	end
@@ -434,18 +521,6 @@ function M:Tick()
 		local rec = self.events[id]
 		if not seen[id] and not (rec and rec.isManual) then
 			self:removeEvent(id)
-		end
-	end
-
-	-- Keep icon numbers updating smoothly
-	for _, rec in pairs(self.events) do
-		if rec.iconFrame and not rec.isManual and C_EncounterTimeline and C_EncounterTimeline.GetEventTimeRemaining then
-			local ok, v = pcall(C_EncounterTimeline.GetEventTimeRemaining, rec.id)
-			if ok and type(v) == "number" then
-				rec.remaining = v
-				updateRecTiming(rec, v)
-				self:updateRecord(rec.id, rec.eventInfo, v)
-			end
 		end
 	end
 

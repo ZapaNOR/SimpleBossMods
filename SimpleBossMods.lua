@@ -22,7 +22,6 @@ C.BAR_TEX_DEFAULT = "Interface\\TARGETINGFRAME\\UI-StatusBar"
 C.THRESHOLD_TO_BAR = 5.0
 C.ICON_ZOOM = 0.10
 C.ICONS_PER_ROW = 5
-C.BAR_GAP = 6
 C.TICK_INTERVAL = 0.20
 
 -- Move everything slightly up (requested)
@@ -37,6 +36,8 @@ C.BREAK_LABEL = "Break"
 -- Indicators
 C.INDICATOR_MAX = 6
 C.INDICATOR_MASK = 1023 -- all bits
+-- Private aura anchor slots (max icons in the group)
+C.PRIVATE_AURA_MAX = 8
 
 -- Bars: indicator icons outside to the right
 C.BAR_END_INDICATOR_GAP_X = 6
@@ -77,6 +78,14 @@ M.Defaults = M.Defaults or {
 			},
 		},
 		indicators = { iconSize = 10, barSize = 20 },
+		privateAuras = {
+			size = 48,
+			gap = 6,
+			growDirection = "RIGHT",
+			x = 0,
+			y = 0,
+			soundKitID = 316476,
+		},
 	},
 }
 
@@ -156,6 +165,40 @@ function M:EnsureDefaults()
 		iconSize = M.Defaults.cfg.indicators.iconSize,
 		barSize = M.Defaults.cfg.indicators.barSize,
 	}
+	cfg.privateAuras = cfg.privateAuras or {
+		size = M.Defaults.cfg.privateAuras.size,
+		gap = M.Defaults.cfg.privateAuras.gap,
+		growDirection = M.Defaults.cfg.privateAuras.growDirection,
+		x = M.Defaults.cfg.privateAuras.x,
+		y = M.Defaults.cfg.privateAuras.y,
+		soundKitID = M.Defaults.cfg.privateAuras.soundKitID,
+	}
+	if cfg.privateAuras.size == nil then
+		cfg.privateAuras.size = M.Defaults.cfg.privateAuras.size
+	end
+	if cfg.privateAuras.gap == nil then
+		cfg.privateAuras.gap = M.Defaults.cfg.privateAuras.gap
+	end
+	if cfg.privateAuras.x == nil then
+		cfg.privateAuras.x = M.Defaults.cfg.privateAuras.x
+	end
+	if cfg.privateAuras.y == nil then
+		cfg.privateAuras.y = M.Defaults.cfg.privateAuras.y
+	end
+	if cfg.privateAuras.soundKitID == nil then
+		cfg.privateAuras.soundKitID = M.Defaults.cfg.privateAuras.soundKitID
+	end
+	do
+		local dir = cfg.privateAuras.growDirection
+		if type(dir) ~= "string" then
+			dir = M.Defaults.cfg.privateAuras.growDirection
+		end
+		dir = dir:upper()
+		if dir ~= "LEFT" and dir ~= "RIGHT" and dir ~= "UP" and dir ~= "DOWN" then
+			dir = M.Defaults.cfg.privateAuras.growDirection
+		end
+		cfg.privateAuras.growDirection = dir
+	end
 end
 
 M.Live = M.Live or {}
@@ -181,6 +224,7 @@ function M.SyncLiveConfig()
 	local ic = SimpleBossModsDB.cfg.icons
 	local bc = SimpleBossModsDB.cfg.bars
 	local inc = SimpleBossModsDB.cfg.indicators
+	local pc = SimpleBossModsDB.cfg.privateAuras or M.Defaults.cfg.privateAuras
 
 	L.GAP = tonumber(gc.gap) or 6
 	L.MIRROR = gc.mirror and true or false
@@ -212,39 +256,56 @@ function M.SyncLiveConfig()
 
 	L.ICON_INDICATOR_SIZE = tonumber(inc.iconSize) or 0
 	L.BAR_INDICATOR_SIZE = tonumber(inc.barSize) or 0
+
+	L.PRIVATE_AURA_SIZE = U.clamp(U.round(tonumber(pc.size) or M.Defaults.cfg.privateAuras.size), 16, 128)
+	L.PRIVATE_AURA_GAP = U.clamp(U.round(tonumber(pc.gap) or 0), 0, 50)
+	do
+		local dir = pc.growDirection
+		if type(dir) ~= "string" then
+			dir = M.Defaults.cfg.privateAuras.growDirection
+		end
+		dir = dir:upper()
+		if dir ~= "LEFT" and dir ~= "RIGHT" and dir ~= "UP" and dir ~= "DOWN" then
+			dir = M.Defaults.cfg.privateAuras.growDirection
+		end
+		L.PRIVATE_AURA_GROW = dir
+	end
+	L.PRIVATE_AURA_X = tonumber(pc.x) or 0
+	L.PRIVATE_AURA_Y = tonumber(pc.y) or 0
+	L.PRIVATE_AURA_SOUND_KIT = tonumber(pc.soundKitID) or 0
 end
 
-function U.formatTimeIcon(rem)
-	if type(issecretvalue) == "function" and issecretvalue(rem) then return "" end
-	if rem <= 0 then return "" end
-	local secs = math.max(0, math.floor(rem + 0.5))
+local function isSecretValue(value)
+	return type(issecretvalue) == "function" and issecretvalue(value)
+end
+
+local function formatClockTime(secs)
 	if secs >= 3600 then
 		local h = math.floor(secs / 3600)
 		local m = math.floor((secs % 3600) / 60)
 		local s = secs % 60
 		return string.format("%d:%02d:%02d", h, m, s)
 	end
+	local m = math.floor(secs / 60)
+	local s = secs % 60
+	return string.format("%d:%02d", m, s)
+end
+
+function U.formatTimeIcon(rem)
+	if isSecretValue(rem) then return "" end
+	if rem <= 0 then return "" end
+	local secs = math.max(0, math.floor(rem + 0.5))
 	if secs >= 60 then
-		local m = math.floor(secs / 60)
-		local s = secs % 60
-		return string.format("%d:%02d", m, s)
+		return formatClockTime(secs)
 	end
 	return tostring(secs)
 end
 
 function U.formatTimeBar(rem)
-	if type(issecretvalue) == "function" and issecretvalue(rem) then return "" end
+	if isSecretValue(rem) then return "" end
 	if rem >= 60 then
 		local secs = math.max(0, math.floor(rem + 0.5))
-		if secs >= 3600 then
-			local h = math.floor(secs / 3600)
-			local m = math.floor((secs % 3600) / 60)
-			local s = secs % 60
-			return string.format("%d:%02d:%02d", h, m, s)
-		end
-		local m = math.floor(secs / 60)
-		local s = secs % 60
-		return string.format("%d:%02d", m, s)
+		return formatClockTime(secs)
 	end
 	if rem >= 10 then
 		return tostring(math.floor(rem + 0.5))
@@ -306,7 +367,7 @@ function U.safeGetLabel(eventInfo)
 	local label = eventInfo.name or eventInfo.text or eventInfo.title or eventInfo.label
 		or eventInfo.spellName or eventInfo.overrideName or ""
 
-	if type(issecretvalue) == "function" and issecretvalue(label) then
+	if isSecretValue(label) then
 		return label
 	end
 
@@ -371,3 +432,6 @@ M._settingsCategoryID = nil
 M._testTicker = nil
 M._testTimelineEventIDs = nil
 M._testTimelineEventIDSet = nil
+M._testEditModeEventTimer = nil
+M._privateAuraAnchorIDs = nil
+M._privateAuraLastCount = nil

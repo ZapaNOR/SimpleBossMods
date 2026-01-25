@@ -42,12 +42,6 @@ local function shouldAutoSlotKeystone()
 	return true
 end
 
-local function getInstanceMapID()
-	if not GetInstanceInfo then return nil end
-	local _, _, _, _, _, _, _, instanceID = GetInstanceInfo()
-	return instanceID
-end
-
 local function getContainerAPIs()
 	if C_Container and C_Container.GetContainerNumSlots then
 		return C_Container.GetContainerNumSlots, C_Container.GetContainerItemLink, C_Container.PickupContainerItem
@@ -179,6 +173,60 @@ local function getManualTimersStore()
 	return SimpleBossModsDB.manualTimers
 end
 
+local function buildManualTimerEventInfo(kind)
+	local icon = (M.GetManualTimerIcon and M:GetManualTimerIcon(kind))
+		or ((kind == "pull") and C.PULL_ICON or C.BREAK_ICON)
+	return {
+		name = (kind == "pull") and (C.PULL_LABEL or "Pull") or (C.BREAK_LABEL or "Break"),
+		icon = icon,
+	}
+end
+
+local function ensureManualTimerRecord(kind)
+	local id = MANUAL_TIMER_IDS[kind]
+	if not id then return nil end
+
+	M.events = M.events or {}
+	local rec = M.events[id]
+	if not rec then
+		rec = { id = id }
+		M.events[id] = rec
+	end
+
+	rec.isManual = true
+	rec.forceBar = true
+	rec.kind = kind
+
+	return rec, id
+end
+
+local function initManualTimer(kind, seconds, opts)
+	local rec, id = ensureManualTimerRecord(kind)
+	if not rec then return nil end
+
+	local now = (opts and opts.now) or GetTime()
+	rec.suppressCountdown = not not (opts and opts.suppressCountdown)
+	rec.source = opts and opts.source or nil
+	rec.eventInfo = buildManualTimerEventInfo(kind)
+
+	rec.duration = seconds
+	rec.startTime = (opts and opts.startTime) or now
+	rec.endTime = (opts and opts.endTime) or (rec.startTime + seconds)
+	rec.remaining = (opts and opts.remaining) or seconds
+
+	return rec, id, now
+end
+
+local function persistManualTimer(kind, seconds, source, suppressCountdown)
+	local nowServer = getServerTimeSafe()
+	if not nowServer then return nil end
+	M:SaveManualTimerState(kind, nowServer + seconds, seconds, {
+		suppressCountdown = suppressCountdown,
+		source = source,
+	})
+	return nowServer
+end
+
 function M:SaveManualTimerState(kind, endServerTime, duration, opts)
 	local store = getManualTimersStore()
 	if not store or not kind then return end
@@ -272,43 +320,14 @@ end
 
 function M:StartManualTimer(kind, seconds)
 	if type(seconds) ~= "number" or seconds <= 0 then return end
-	local id = MANUAL_TIMER_IDS[kind]
-	if not id then return end
-
 	if kind == "pull" then
 		self:StopManualTimer("break")
 	end
 
-	local now = GetTime()
-	local rec = self.events[id]
-	if not rec then
-		rec = { id = id }
-		self.events[id] = rec
-	end
+	local rec, id, now = initManualTimer(kind, seconds, { now = GetTime(), suppressCountdown = false })
+	if not rec then return end
 
-	rec.isManual = true
-	rec.forceBar = true
-	rec.kind = kind
-	rec.suppressCountdown = false
-	rec.source = nil
-	local icon = (self.GetManualTimerIcon and self:GetManualTimerIcon(kind))
-		or ((kind == "pull") and C.PULL_ICON or C.BREAK_ICON)
-	rec.eventInfo = {
-		name = (kind == "pull") and (C.PULL_LABEL or "Pull") or (C.BREAK_LABEL or "Break"),
-		icon = icon,
-	}
-	rec.duration = seconds
-	rec.startTime = now
-	rec.endTime = now + seconds
-	rec.remaining = seconds
-
-	local nowServer = getServerTimeSafe()
-	if nowServer then
-		self:SaveManualTimerState(kind, nowServer + seconds, seconds, {
-			suppressCountdown = rec.suppressCountdown,
-			source = rec.source,
-		})
-	end
+	local nowServer = persistManualTimer(kind, seconds, rec.source, rec.suppressCountdown)
 
 	if kind == "pull" then
 		rec.ignoreCountdownUntil = now + 1
@@ -341,43 +360,18 @@ end
 
 function M:StartExternalManualTimer(kind, seconds, source, suppressCountdown)
 	if type(seconds) ~= "number" or seconds <= 0 then return end
-	local id = MANUAL_TIMER_IDS[kind]
-	if not id then return end
-
 	if kind == "pull" then
 		self:StopManualTimer("break")
 	end
 
-	local now = GetTime()
-	local rec = self.events[id]
-	if not rec then
-		rec = { id = id }
-		self.events[id] = rec
-	end
+	local rec, id, now = initManualTimer(kind, seconds, {
+		now = GetTime(),
+		suppressCountdown = suppressCountdown,
+		source = source,
+	})
+	if not rec then return end
 
-	rec.isManual = true
-	rec.forceBar = true
-	rec.kind = kind
-	rec.suppressCountdown = not not suppressCountdown
-	rec.source = source
-	local icon = (self.GetManualTimerIcon and self:GetManualTimerIcon(kind))
-		or ((kind == "pull") and C.PULL_ICON or C.BREAK_ICON)
-	rec.eventInfo = {
-		name = (kind == "pull") and (C.PULL_LABEL or "Pull") or (C.BREAK_LABEL or "Break"),
-		icon = icon,
-	}
-	rec.duration = seconds
-	rec.startTime = now
-	rec.endTime = now + seconds
-	rec.remaining = seconds
-
-	local nowServer = getServerTimeSafe()
-	if nowServer then
-		self:SaveManualTimerState(kind, nowServer + seconds, seconds, {
-			suppressCountdown = rec.suppressCountdown,
-			source = source,
-		})
-	end
+	local nowServer = persistManualTimer(kind, seconds, rec.source, rec.suppressCountdown)
 
 	if kind == "pull" then
 		rec.ignoreCountdownUntil = now + 1
@@ -412,35 +406,19 @@ local function restoreManualTimer(kind, info)
 		remaining = duration
 	end
 
-	local id = MANUAL_TIMER_IDS[kind]
-	if not id then return end
-
-	M.events = M.events or {}
-	local rec = M.events[id]
-	if not rec then
-		rec = { id = id }
-		M.events[id] = rec
-	end
-
-	rec.isManual = true
-	rec.forceBar = true
-	rec.kind = kind
-	rec.suppressCountdown = suppressCountdown
-	rec.source = info.source
-	local icon = (M.GetManualTimerIcon and M:GetManualTimerIcon(kind))
-		or ((kind == "pull") and C.PULL_ICON or C.BREAK_ICON)
-	rec.eventInfo = {
-		name = (kind == "pull") and (C.PULL_LABEL or "Pull") or (C.BREAK_LABEL or "Break"),
-		icon = icon,
-	}
-
-	rec.duration = duration
-	rec.startTime = GetTime() - (duration - remaining)
-	rec.endTime = GetTime() + remaining
-	rec.remaining = remaining
+	local now = GetTime()
+	local rec, id = initManualTimer(kind, duration, {
+		now = now,
+		startTime = now - (duration - remaining),
+		endTime = now + remaining,
+		remaining = remaining,
+		suppressCountdown = suppressCountdown,
+		source = info.source,
+	})
+	if not rec then return end
 
 	if kind == "pull" then
-		rec.ignoreCountdownUntil = GetTime() + 1
+		rec.ignoreCountdownUntil = now + 1
 		if rec.suppressCountdown then
 			cancelManualCountdown(rec)
 		else
@@ -475,6 +453,10 @@ ef:SetScript("OnEvent", function(_, event, ...)
 		M:ApplyIconConfig(SimpleBossModsDB.cfg.icons.size, SimpleBossModsDB.cfg.icons.fontSize, SimpleBossModsDB.cfg.icons.borderThickness)
 		M:ApplyBarConfig(SimpleBossModsDB.cfg.bars.width, SimpleBossModsDB.cfg.bars.height, SimpleBossModsDB.cfg.bars.fontSize, SimpleBossModsDB.cfg.bars.borderThickness)
 		M:ApplyIndicatorConfig(SimpleBossModsDB.cfg.indicators.iconSize or 0, SimpleBossModsDB.cfg.indicators.barSize or 0)
+		if M.ApplyPrivateAuraConfig then
+			local pc = SimpleBossModsDB.cfg.privateAuras
+			M:ApplyPrivateAuraConfig(pc.size, pc.gap, pc.growDirection, pc.x, pc.y, pc.soundKitID)
+		end
 
 		M:CreateSettingsPanel()
 		M:Tick()
@@ -610,9 +592,13 @@ ef:SetScript("OnEvent", function(_, event, ...)
 				end
 			end
 		end
+	elseif event == "UNIT_AURA" then
+		local unit = ...
+		if unit == "player" and M.UpdatePrivateAuraFrames then
+			M:UpdatePrivateAuraFrames(true)
+		end
 	end
 end)
-
 ef:RegisterEvent("PLAYER_LOGIN")
 ef:RegisterEvent("ADDON_LOADED")
 ef:RegisterEvent("ENCOUNTER_TIMELINE_EVENT_ADDED")
@@ -621,6 +607,7 @@ ef:RegisterEvent("ENCOUNTER_TIMELINE_EVENT_STATE_CHANGED")
 ef:RegisterEvent("START_PLAYER_COUNTDOWN")
 ef:RegisterEvent("CANCEL_PLAYER_COUNTDOWN")
 ef:RegisterEvent("CHAT_MSG_ADDON")
+ef:RegisterEvent("UNIT_AURA")
 
 -- =========================
 -- Slash
@@ -635,11 +622,14 @@ SlashCmdList["SIMPLEBOSSMODS"] = function(msg)
 		return
 	end
 
-	if msg == "test" then
+	if msg == "test" or msg == "test start" or msg == "starttest" then
 		M:StartTest()
 		return
 	end
-
+	if msg == "test stop" or msg == "test end" or msg == "test off" or msg == "stoptest" then
+		M:StopTest()
+		return
+	end
 	if msg:sub(1, 4) == "pull" then
 		handleManualTimer("pull", msg:sub(5))
 		return
@@ -649,7 +639,7 @@ SlashCmdList["SIMPLEBOSSMODS"] = function(msg)
 		return
 	end
 
-	print(ADDON_NAME .. " commands: /sbm | /sbm settings|config|options | /sbm test | /sbm pull <sec> | /sbm break <min>")
+	print(ADDON_NAME .. " commands: /sbm | /sbm settings|config|options | /sbm test [start|stop] | /sbm pull <sec> | /sbm break <min>")
 end
 
 SlashCmdList["SIMPLEBOSSMODSPULL"] = function(msg)

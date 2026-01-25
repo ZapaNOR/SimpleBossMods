@@ -34,6 +34,12 @@ local function canUseTimelineScriptEvents()
 	return M.CanUseTimelineScriptEvents and M:CanUseTimelineScriptEvents()
 end
 
+local function canUseTimelineEditModeEvents()
+	return C_EncounterTimeline
+		and type(C_EncounterTimeline.AddEditModeEvents) == "function"
+		and type(C_EncounterTimeline.CancelEditModeEvents) == "function"
+end
+
 local function getSpellIcon(spellId)
 	if not spellId then return nil end
 	if C_Spell and C_Spell.GetSpellInfo then
@@ -60,6 +66,41 @@ function M:ClearTestTimelineEvents()
 	end
 	self._testTimelineEventIDs = nil
 	self._testTimelineEventIDSet = nil
+end
+
+function M:ClearEditModeTimelineEvents()
+	if self._testEditModeEventTimer then
+		self._testEditModeEventTimer:Cancel()
+		self._testEditModeEventTimer = nil
+	end
+	if C_EncounterTimeline and C_EncounterTimeline.CancelEditModeEvents then
+		pcall(C_EncounterTimeline.CancelEditModeEvents)
+	end
+end
+
+function M:StartEditModeTimelineTest()
+	if not canUseTimelineEditModeEvents() then return false end
+
+	if self._testEditModeEventTimer then
+		self._testEditModeEventTimer:Cancel()
+		self._testEditModeEventTimer = nil
+	end
+
+	local function queueEditModeEvents()
+		local ok, loopTimerDuration = pcall(C_EncounterTimeline.AddEditModeEvents)
+		if not ok then
+			return
+		end
+		loopTimerDuration = tonumber(loopTimerDuration) or 0
+		if loopTimerDuration <= 0 then
+			loopTimerDuration = 2.0
+		end
+		self._testEditModeEventTimer = C_Timer.NewTimer(loopTimerDuration, queueEditModeEvents)
+	end
+
+	queueEditModeEvents()
+	C_Timer.After(0, function() M:Tick() end)
+	return true
 end
 
 function M:PushTestTimelineEvents()
@@ -127,11 +168,26 @@ function M:StopTest()
 	if self.ClearTestTimelineEvents then
 		self:ClearTestTimelineEvents()
 	end
+	if self.ClearEditModeTimelineEvents then
+		self:ClearEditModeTimelineEvents()
+	end
+	if self.ShowTestPrivateAura then
+		self:ShowTestPrivateAura(false)
+	end
 	self:clearAll()
 end
 
 function M:StartTest()
 	self:StopTest()
+	if self.ShowTestPrivateAura then
+		self:ShowTestPrivateAura(true)
+	end
+
+	if self.StartEditModeTimelineTest then
+		if self:StartEditModeTimelineTest() then
+			return
+		end
+	end
 
 	if canUseTimelineScriptEvents() and self.PushTestTimelineEvents then
 		if self:PushTestTimelineEvents() then
@@ -210,6 +266,9 @@ function M:StartTest()
 		if not anyActive then
 			self._testTicker:Cancel()
 			self._testTicker = nil
+			if M.ShowTestPrivateAura then
+				M:ShowTestPrivateAura(false)
+			end
 		end
 	end)
 end

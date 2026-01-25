@@ -53,6 +53,14 @@ end
 barsParent:SetSize(1, 1)
 frames.barsParent = barsParent
 
+local privateAurasAnchor = CreateFrame("Frame", ADDON_NAME .. "_PrivateAuras", UIParent)
+privateAurasAnchor:SetSize(1, 1)
+privateAurasAnchor:SetPoint("CENTER", UIParent, "CENTER", L.PRIVATE_AURA_X, L.PRIVATE_AURA_Y + C.GLOBAL_Y_NUDGE)
+frames.privateAurasAnchor = privateAurasAnchor
+
+local privateAuraBorderThickness
+local ensurePrivateAuraOverlay
+
 function M:SetPosition(x, y)
 	x = tonumber(x) or 0
 	y = tonumber(y) or 0
@@ -61,6 +69,299 @@ function M:SetPosition(x, y)
 
 	anchor:ClearAllPoints()
 	anchor:SetPoint("CENTER", UIParent, "CENTER", x, y + C.GLOBAL_Y_NUDGE)
+end
+
+local function buildPrivateAuraAnchorInfo(auraIndex, offsetX, offsetY)
+	local size = L.PRIVATE_AURA_SIZE
+	return {
+		unitToken = "player",
+		auraIndex = auraIndex,
+		parent = privateAurasAnchor,
+		showCountdownFrame = true,
+		showCountdownNumbers = false,
+		iconInfo = {
+			iconAnchor = {
+				point = "CENTER",
+				relativeTo = privateAurasAnchor,
+				relativePoint = "CENTER",
+				offsetX = offsetX,
+				offsetY = offsetY,
+			},
+			iconWidth = size,
+			iconHeight = size,
+		},
+	}
+end
+
+function M:SetPrivateAuraPosition(x, y)
+	x = tonumber(x) or 0
+	y = tonumber(y) or 0
+	if SimpleBossModsDB and SimpleBossModsDB.cfg and SimpleBossModsDB.cfg.privateAuras then
+		SimpleBossModsDB.cfg.privateAuras.x = x
+		SimpleBossModsDB.cfg.privateAuras.y = y
+	end
+
+	privateAurasAnchor:ClearAllPoints()
+	privateAurasAnchor:SetPoint("CENTER", UIParent, "CENTER", x, y + C.GLOBAL_Y_NUDGE)
+end
+
+function M:UpdatePrivateAuraAnchor()
+	if not (C_UnitAuras and C_UnitAuras.AddPrivateAuraAnchor) then return end
+
+	if self._privateAuraAnchorIDs and C_UnitAuras.RemovePrivateAuraAnchor then
+		for _, id in ipairs(self._privateAuraAnchorIDs) do
+			if id then
+				pcall(C_UnitAuras.RemovePrivateAuraAnchor, id)
+			end
+		end
+	end
+	self._privateAuraAnchorIDs = {}
+
+	local step = L.PRIVATE_AURA_SIZE + L.PRIVATE_AURA_GAP
+	local dir = L.PRIVATE_AURA_GROW
+	for i = 1, (C.PRIVATE_AURA_MAX or 1) do
+		local offsetX, offsetY = 0, 0
+		if dir == "LEFT" then
+			offsetX = -step * (i - 1)
+		elseif dir == "RIGHT" then
+			offsetX = step * (i - 1)
+		elseif dir == "UP" then
+			offsetY = step * (i - 1)
+		else
+			offsetY = -step * (i - 1)
+		end
+
+		local info = buildPrivateAuraAnchorInfo(i, offsetX, offsetY)
+		local ok, id = pcall(C_UnitAuras.AddPrivateAuraAnchor, info)
+		if ok then
+			self._privateAuraAnchorIDs[i] = id
+		end
+
+		local overlay = ensurePrivateAuraOverlay and ensurePrivateAuraOverlay(self, i)
+		if overlay then
+			overlay:ClearAllPoints()
+			overlay:SetPoint("CENTER", privateAurasAnchor, "CENTER", offsetX, offsetY)
+			overlay:SetSize(L.PRIVATE_AURA_SIZE, L.PRIVATE_AURA_SIZE)
+			overlay:SetFrameLevel(privateAurasAnchor:GetFrameLevel() + 50)
+			M.ensureFullBorder(overlay, privateAuraBorderThickness(), 1, 0, 0, 1)
+		end
+	end
+	if self._privateAuraOverlays then
+		for i = (C.PRIVATE_AURA_MAX or 1) + 1, #self._privateAuraOverlays do
+			local overlay = self._privateAuraOverlays[i]
+			if overlay then
+				overlay:Hide()
+			end
+		end
+	end
+
+	if self.UpdatePrivateAuraFrames then
+		self:UpdatePrivateAuraFrames(false)
+	end
+	if self.UpdateTestPrivateAura then
+		self:UpdateTestPrivateAura()
+	end
+end
+
+local function getVisibleChildCount(parent)
+	if not parent then return 0 end
+	local count = 0
+	for _, child in ipairs({ parent:GetChildren() }) do
+		if child.__sbmPrivateAuraTest or child.__sbmPrivateAuraOverlay then
+			-- skip test frame
+		else
+			local ok, shown = pcall(child.IsShown, child)
+			if ok and shown then
+				count = count + 1
+			end
+		end
+	end
+	return count
+end
+
+function M:GetPrivateAuraVisibleCount()
+	return getVisibleChildCount(privateAurasAnchor)
+end
+
+privateAuraBorderThickness = function()
+	if not U or not U.clamp then return 2 end
+	return U.clamp(math.floor(L.PRIVATE_AURA_SIZE * 0.06 + 0.5), 1, 4)
+end
+
+local function isForbidden(obj)
+	if not obj then return false end
+	if not obj.IsForbidden then return false end
+	local ok, forbidden = pcall(obj.IsForbidden, obj)
+	return ok and forbidden
+end
+
+local function safeHideRegion(region)
+	if not region then return end
+	if region.IsForbidden and region:IsForbidden() then return end
+	if region.Hide then
+		pcall(region.Hide, region)
+	end
+	if region.SetAlpha then
+		pcall(region.SetAlpha, region, 0)
+	end
+end
+
+local function stylePrivateAuraFrame(frame)
+	if not frame then return end
+	if frame.__sbmPrivateAuraTest then return end
+	if frame.__sbmPrivateAuraOverlay then return end
+	if isForbidden(frame) then return end
+	if InCombatLockdown and InCombatLockdown() then return end
+	if frame.DebuffBorder then
+		safeHideRegion(frame.DebuffBorder)
+	end
+	if frame.TempEnchantBorder then
+		safeHideRegion(frame.TempEnchantBorder)
+	end
+	if frame.Symbol then
+		safeHideRegion(frame.Symbol)
+	end
+
+	local holder = frame.__sbmPrivateAuraBorder
+	if not holder then
+		holder = CreateFrame("Frame", nil, frame)
+		frame.__sbmPrivateAuraBorder = holder
+	end
+	holder:SetFrameLevel(frame:GetFrameLevel() + 6)
+	local icon = frame.Icon
+	if isForbidden(icon) then
+		icon = nil
+	end
+	if icon then
+		holder:SetAllPoints(icon)
+	else
+		holder:SetAllPoints(frame)
+	end
+	M.ensureFullBorder(holder, privateAuraBorderThickness(), 1, 0, 0, 1)
+end
+
+ensurePrivateAuraOverlay = function(self, index)
+	self._privateAuraOverlays = self._privateAuraOverlays or {}
+	local f = self._privateAuraOverlays[index]
+	if not f then
+		f = CreateFrame("Frame", nil, privateAurasAnchor)
+		f.__sbmPrivateAuraOverlay = true
+		f:EnableMouse(false)
+		f:SetFrameStrata("HIGH")
+		self._privateAuraOverlays[index] = f
+	end
+	return f
+end
+
+function M:UpdatePrivateAuraOverlays(visibleCount)
+	if not self._privateAuraOverlays then return end
+	local count = visibleCount
+	if count == nil then
+		count = self:GetPrivateAuraVisibleCount()
+	end
+	local maxCount = #self._privateAuraOverlays
+	if count > maxCount then
+		count = maxCount
+	end
+	for i = 1, maxCount do
+		local f = self._privateAuraOverlays[i]
+		if f then
+			f:SetShown(i <= count)
+		end
+	end
+end
+
+function M:UpdatePrivateAuraFrames(playSound)
+	if not privateAurasAnchor then return end
+	local count = 0
+	for _, child in ipairs({ privateAurasAnchor:GetChildren() }) do
+		if not child.__sbmPrivateAuraTest and not child.__sbmPrivateAuraOverlay then
+			local ok, shown = pcall(child.IsShown, child)
+			if ok and shown then
+				count = count + 1
+			end
+		end
+		stylePrivateAuraFrame(child)
+	end
+	if self.UpdatePrivateAuraOverlays then
+		self:UpdatePrivateAuraOverlays(count)
+	end
+	local prev = self._privateAuraLastCount
+	self._privateAuraLastCount = count
+	if playSound and L.PRIVATE_AURA_SOUND_KIT and L.PRIVATE_AURA_SOUND_KIT ~= 0 then
+		if prev ~= nil and count > prev then
+			self:PlayPrivateAuraSound()
+		end
+	end
+end
+
+local function ensureTestPrivateAuraFrame(self)
+	if self._testPrivateAuraFrame then return self._testPrivateAuraFrame end
+	local f = CreateFrame("Frame", nil, privateAurasAnchor)
+	f:SetSize(L.PRIVATE_AURA_SIZE, L.PRIVATE_AURA_SIZE)
+	f:SetPoint("CENTER", privateAurasAnchor, "CENTER", 0, 0)
+	f.__sbmPrivateAuraTest = true
+
+	local bg = f:CreateTexture(nil, "ARTWORK")
+	bg:SetAllPoints()
+	bg:SetColorTexture(0, 0, 0, 0.6)
+	f.bg = bg
+
+	local text = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+	text:SetPoint("CENTER", f, "CENTER", 0, 0)
+	text:SetTextColor(1, 1, 1, 1)
+	text:SetShadowColor(0, 0, 0, 1)
+	text:SetShadowOffset(1, -1)
+	text:SetText("P")
+	f.text = text
+
+	f:Hide()
+	self._testPrivateAuraFrame = f
+	return f
+end
+
+function M:UpdateTestPrivateAura()
+	local f = self._testPrivateAuraFrame
+	if not f then return end
+	f:SetSize(L.PRIVATE_AURA_SIZE, L.PRIVATE_AURA_SIZE)
+	if f.bg then
+		f.bg:SetAllPoints()
+	end
+	if f.text then
+		local fontSize = math.max(12, math.floor(L.PRIVATE_AURA_SIZE * 0.6 + 0.5))
+		f.text:SetFont(C.FONT_PATH, fontSize, C.FONT_FLAGS)
+		f.text:SetText("P")
+	end
+	M.ensureFullBorder(f, privateAuraBorderThickness(), 1, 0, 0, 1)
+end
+
+function M:ShowTestPrivateAura(show)
+	local f = ensureTestPrivateAuraFrame(self)
+	if show then
+		f:Show()
+		self:UpdateTestPrivateAura()
+	else
+		f:Hide()
+	end
+end
+
+function M:PlayPrivateAuraSound()
+	local sound = L.PRIVATE_AURA_SOUND_KIT
+	if not sound or sound == 0 then return end
+	local now = GetTime and GetTime() or 0
+	if self._privateAuraLastSoundAt and now > 0 and (now - self._privateAuraLastSoundAt) < 0.1 then
+		return
+	end
+	self._privateAuraLastSoundAt = now
+	if type(sound) == "number" then
+		if PlaySound then
+			pcall(PlaySound, sound, "Master")
+		end
+	elseif type(sound) == "string" then
+		if PlaySoundFile then
+			pcall(PlaySoundFile, sound, "Master")
+		end
+	end
 end
 
 -- =========================
@@ -75,8 +376,18 @@ local function ensureBorderFrame(owner)
 	return bf
 end
 
-local function ensureFullBorder(owner, thickness)
+local function ensureFullBorder(owner, thickness, r, g, b, a)
 	local bf = ensureBorderFrame(owner)
+	local function setColor(border)
+		local cr = r or 0
+		local cg = g or 0
+		local cb = b or 0
+		local ca = a or 1
+		border.top:SetColorTexture(cr, cg, cb, ca)
+		border.bot:SetColorTexture(cr, cg, cb, ca)
+		border.left:SetColorTexture(cr, cg, cb, ca)
+		border.right:SetColorTexture(cr, cg, cb, ca)
+	end
 
 	if bf.__fullBorder then
 		local t = thickness or 1
@@ -84,13 +395,15 @@ local function ensureFullBorder(owner, thickness)
 		bf.__fullBorder.bot:SetHeight(t)
 		bf.__fullBorder.left:SetWidth(t)
 		bf.__fullBorder.right:SetWidth(t)
+		if r ~= nil or g ~= nil or b ~= nil or a ~= nil then
+			setColor(bf.__fullBorder)
+		end
 		return
 	end
 
 	local t = thickness or 1
 	local function line()
 		local tex = bf:CreateTexture(nil, "OVERLAY")
-		tex:SetColorTexture(0, 0, 0, 1)
 		return tex
 	end
 
@@ -115,6 +428,7 @@ local function ensureFullBorder(owner, thickness)
 	right:SetWidth(t)
 
 	bf.__fullBorder = { top = top, bot = bot, left = left, right = right }
+	setColor(bf.__fullBorder)
 end
 
 local function ensureRightDivider(owner, thickness)
