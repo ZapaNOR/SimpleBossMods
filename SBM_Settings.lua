@@ -7,6 +7,9 @@ if not M then return end
 local C = M.Const
 local L = M.Live
 local U = M.Util
+local AG = LibStub and LibStub("AceGUI-3.0", true)
+local LSM = M.LSM or (LibStub and LibStub("LibSharedMedia-3.0", true))
+local isGUIOpen = false
 
 local function refreshBarFrame(f, isPool)
 	if not f then return end
@@ -203,6 +206,59 @@ function M:ApplyBarBgColor(r, g, b, a)
 	end
 end
 
+function M:ApplyFontConfig(fontKey)
+	local gc = SimpleBossModsDB.cfg.general
+	gc.font = fontKey or M.Defaults.cfg.general.font
+
+	M.SyncLiveConfig()
+
+	for _, rec in pairs(self.events) do
+		if rec.barFrame then
+			if rec.barFrame.txt then M.applyBarFont(rec.barFrame.txt) end
+			if rec.barFrame.rt then M.applyBarFont(rec.barFrame.rt) end
+		end
+	end
+	for _, f in ipairs(M.pools.bar) do
+		if f.txt then M.applyBarFont(f.txt) end
+		if f.rt then M.applyBarFont(f.rt) end
+	end
+	if self.UpdateTestPrivateAura then
+		self:UpdateTestPrivateAura()
+	end
+end
+
+function M:ApplyBarTextureConfig(textureKey)
+	local bc = SimpleBossModsDB.cfg.bars
+	bc.texture = textureKey or M.Defaults.cfg.bars.texture
+
+	M.SyncLiveConfig()
+
+	for _, rec in pairs(self.events) do
+		if rec.barFrame then
+			M.setBarFillFlat(rec.barFrame, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
+		end
+	end
+	for _, f in ipairs(M.pools.bar) do
+		M.setBarFillFlat(f, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
+	end
+end
+
+function M:ApplyIconFontConfig(fontKey)
+	local ic = SimpleBossModsDB.cfg.icons
+	ic.font = fontKey or M.Defaults.cfg.icons.font
+
+	M.SyncLiveConfig()
+
+	for _, rec in pairs(self.events) do
+		if rec.iconFrame then
+			M.applyIconFont(rec.iconFrame.timeText)
+		end
+	end
+	for _, f in ipairs(M.pools.icon) do
+		M.applyIconFont(f.timeText)
+	end
+end
+
 function M:ApplyIndicatorConfig(iconSize, barSize)
 	local ic = SimpleBossModsDB.cfg.indicators
 	ic.iconSize = U.clamp(U.round(iconSize), 0, 32)
@@ -222,7 +278,7 @@ function M:ApplyIndicatorConfig(iconSize, barSize)
 	self:LayoutAll()
 end
 
-function M:ApplyPrivateAuraConfig(size, gap, growDirection, x, y, soundKitID)
+function M:ApplyPrivateAuraConfig(size, gap, growDirection, x, y, soundKey)
 	local pc = SimpleBossModsDB.cfg.privateAuras
 	pc.size = U.clamp(U.round(size), 16, 128)
 	pc.gap = U.clamp(U.round(gap), 0, 50)
@@ -234,9 +290,16 @@ function M:ApplyPrivateAuraConfig(size, gap, growDirection, x, y, soundKitID)
 	end
 	pc.x = tonumber(x) or pc.x or 0
 	pc.y = tonumber(y) or pc.y or 0
-	pc.soundKitID = tonumber(soundKitID) or 0
+	local soundChanged = false
+	if soundKey ~= nil and soundKey ~= pc.sound then
+		pc.sound = soundKey
+		soundChanged = true
+	end
 
 	M.SyncLiveConfig()
+	if soundChanged and M.ResetPrivateAuraSoundRegistrations then
+		M:ResetPrivateAuraSoundRegistrations()
+	end
 	if M.SetPrivateAuraPosition then
 		M:SetPrivateAuraPosition(pc.x, pc.y)
 	end
@@ -245,19 +308,61 @@ function M:ApplyPrivateAuraConfig(size, gap, growDirection, x, y, soundKitID)
 	end
 end
 
+function M:ApplyPrivateAuraEnabled(enabled)
+	local pc = SimpleBossModsDB.cfg.privateAuras
+	pc.enabled = enabled and true or false
+	M.SyncLiveConfig()
+	if not pc.enabled then
+		if M.ResetPrivateAuraSoundRegistrations then
+			M:ResetPrivateAuraSoundRegistrations()
+		end
+		if M.ShowTestPrivateAura then
+			M:ShowTestPrivateAura(false)
+		end
+	end
+	if M.UpdatePrivateAuraAnchor then
+		M:UpdatePrivateAuraAnchor()
+	end
+	if pc.enabled and M.SetupPrivateAuraSoundWatcher then
+		M:SetupPrivateAuraSoundWatcher()
+	end
+	if M.UpdatePrivateAuraFrames then
+		M:UpdatePrivateAuraFrames(false)
+	end
+end
+
+function M:ApplyPrivateAuraSoundChannel(channel)
+	local pc = SimpleBossModsDB.cfg.privateAuras
+	local normalized = M.NormalizeSoundChannel and M.NormalizeSoundChannel(channel)
+	if normalized then
+		pc.soundChannel = normalized
+	end
+	M.SyncLiveConfig()
+	if M.ResetPrivateAuraSoundRegistrations then
+		M:ResetPrivateAuraSoundRegistrations()
+	end
+end
+
 -- =========================
 -- Settings Window
 -- =========================
 function M:OpenSettings()
+	if InCombatLockdown() then return end
 	local frame = self._settingsWindow
 	if not frame then
 		frame = self:CreateSettingsWindow()
 	end
 
 	if frame then
-		frame:Show()
-		frame:Raise()
-		if frame._refreshAll then
+		if frame.Show then
+			frame:Show()
+		end
+		if frame.Raise then
+			frame:Raise()
+		end
+		if self._settingsTabGroup and self._settingsTabStatus then
+			self._settingsTabGroup:SelectTab(self._settingsTabStatus.selected or "General")
+		elseif frame._refreshAll then
 			frame._refreshAll()
 		end
 		return
@@ -268,7 +373,7 @@ function M:OpenSettings()
 	end
 end
 
-function M:CreateSettingsWindow()
+function M:CreateLegacySettingsWindow()
 	if self._settingsWindow then return self._settingsWindow end
 	if self.EnsureDefaults then
 		self:EnsureDefaults()
@@ -462,93 +567,14 @@ function M:CreateSettingsWindow()
 		ColorPickerFrame:Show()
 	end
 
-	local privateAuraSoundOptions = {
-		{ label = "None", items = { { id = 0, label = "None" } } },
-		{ label = "Animals", items = {
-			{ id = 316401, label = "Cat" },
-			{ id = 316406, label = "Chicken" },
-			{ id = 316407, label = "Cow" },
-			{ id = 316409, label = "Gnoll" },
-			{ id = 316715, label = "Goat" },
-			{ id = 316411, label = "Lion" },
-			{ id = 316412, label = "Panther" },
-			{ id = 316413, label = "Rattlesnake" },
-			{ id = 316414, label = "Sheep" },
-			{ id = 316415, label = "Wolf" },
-		} },
-		{ label = "Devices", items = {
-			{ id = 316442, label = "Boat Horn" },
-			{ id = 316436, label = "Air Horn" },
-			{ id = 316713, label = "Bike Horn" },
-			{ id = 316446, label = "Cash Register" },
-			{ id = 316717, label = "Jackpot Bell" },
-			{ id = 316718, label = "Jackpot Coins" },
-			{ id = 316719, label = "Jackpot Fail" },
-			{ id = 316433, label = "Rotary Phone Dial" },
-			{ id = 316492, label = "Rotary Phone Ring" },
-			{ id = 316425, label = "Stove Pipe" },
-			{ id = 316430, label = "Trashcan Lid" },
-		} },
-		{ label = "Impacts", items = {
-			{ id = 316528, label = "Anvil Strike" },
-			{ id = 316419, label = "Bubble Smash" },
-			{ id = 316531, label = "Low Thud" },
-			{ id = 316532, label = "Metal Clanks" },
-			{ id = 316486, label = "Metal Rattle" },
-			{ id = 316484, label = "Metal Scrape" },
-			{ id = 316536, label = "Metal Warble" },
-			{ id = 316434, label = "Pop Click" },
-			{ id = 316453, label = "Strange Clang" },
-			{ id = 316535, label = "Sword Scrape" },
-		} },
-		{ label = "Instruments", items = {
-			{ id = 316493, label = "Bell Ring" },
-			{ id = 316712, label = "Bell Trill" },
-			{ id = 316722, label = "Brass" },
-			{ id = 316447, label = "Chime Ascending" },
-			{ id = 316477, label = "Guitar Chug" },
-			{ id = 316482, label = "Guitar Pinch" },
-			{ id = 316509, label = "Pitch Pipe Distressed" },
-			{ id = 316501, label = "Pitch Pipe Note" },
-			{ id = 316540, label = "Synth Big" },
-			{ id = 316476, label = "Synth Buzz" },
-			{ id = 316460, label = "Synth High" },
-			{ id = 316723, label = "Warhorn" },
-		} },
-		{ label = "Warcraft II", items = {
-			{ id = 316731, label = "Abstract Whoosh" },
-			{ id = 316733, label = "Choir" },
-			{ id = 316735, label = "Construction" },
-			{ id = 316736, label = "Magic Chimes" },
-			{ id = 316745, label = "Pig Squeal" },
-			{ id = 316738, label = "Saws" },
-			{ id = 316746, label = "Seal" },
-			{ id = 316748, label = "Slow" },
-			{ id = 316749, label = "Smith" },
-			{ id = 316739, label = "Synth Stinger" },
-			{ id = 316740, label = "Trumpet Rally" },
-			{ id = 316737, label = "Zippy Magic" },
-		} },
-		{ label = "Warcraft III", items = {
-			{ id = 316773, label = "Bell" },
-			{ id = 316774, label = "Crunchy Bell" },
-			{ id = 316768, label = "Drum Splash" },
-			{ id = 316775, label = "Error" },
-			{ id = 316769, label = "Fanfare" },
-			{ id = 316776, label = "Gate Open" },
-			{ id = 316770, label = "Gold" },
-			{ id = 316778, label = "Magic Shimmer" },
-			{ id = 316771, label = "Ringout" },
-			{ id = 316765, label = "Rooster" },
-			{ id = 316779, label = "Shimmer Bell" },
-			{ id = 316766, label = "Wolf Howl" },
-		} },
-	}
-	local privateAuraSoundIndex = {}
-	for _, group in ipairs(privateAuraSoundOptions) do
-		for _, item in ipairs(group.items) do
-			privateAuraSoundIndex[item.id] = item.label
+	local function buildPrivateAuraSoundOptions()
+		if not LSM then return nil end
+		local list = {}
+		for key in pairs(LSM:HashTable("sound")) do
+			list[#list + 1] = { label = key, value = key }
 		end
+		table.sort(list, function(a, b) return a.label < b.label end)
+		return list
 	end
 
 	local function CreateSection(tab, title, collapsed)
@@ -988,6 +1014,13 @@ function M:CreateSettingsWindow()
 		{ label = "Down", value = "DOWN" },
 	}
 
+	local privateEnable = CreateSection(privateTab, "Private Auras")
+	AddCheckRow(privateEnable, "Enable Private Aura Tracking",
+		function() return SimpleBossModsDB.cfg.privateAuras.enabled ~= false end,
+		function(v) M:ApplyPrivateAuraEnabled(v) end,
+		"Toggle private aura icons and sound tracking."
+	)
+
 	local privateLayout = CreateSection(privateTab, "Layout")
 	AddNumberRow(privateLayout, "Private Aura X Offset",
 		function() return SimpleBossModsDB.cfg.privateAuras.x or 0 end,
@@ -998,7 +1031,7 @@ function M:CreateSettingsWindow()
 				SimpleBossModsDB.cfg.privateAuras.growDirection,
 				v,
 				SimpleBossModsDB.cfg.privateAuras.y,
-				SimpleBossModsDB.cfg.privateAuras.soundKitID
+				SimpleBossModsDB.cfg.privateAuras.sound
 			)
 		end,
 		nil, true
@@ -1013,7 +1046,7 @@ function M:CreateSettingsWindow()
 				SimpleBossModsDB.cfg.privateAuras.growDirection,
 				SimpleBossModsDB.cfg.privateAuras.x,
 				v,
-				SimpleBossModsDB.cfg.privateAuras.soundKitID
+				SimpleBossModsDB.cfg.privateAuras.sound
 			)
 		end,
 		nil, true
@@ -1028,7 +1061,7 @@ function M:CreateSettingsWindow()
 				SimpleBossModsDB.cfg.privateAuras.growDirection,
 				SimpleBossModsDB.cfg.privateAuras.x,
 				SimpleBossModsDB.cfg.privateAuras.y,
-				SimpleBossModsDB.cfg.privateAuras.soundKitID
+				SimpleBossModsDB.cfg.privateAuras.sound
 			)
 		end
 	)
@@ -1042,7 +1075,7 @@ function M:CreateSettingsWindow()
 				SimpleBossModsDB.cfg.privateAuras.growDirection,
 				SimpleBossModsDB.cfg.privateAuras.x,
 				SimpleBossModsDB.cfg.privateAuras.y,
-				SimpleBossModsDB.cfg.privateAuras.soundKitID
+				SimpleBossModsDB.cfg.privateAuras.sound
 			)
 		end
 	)
@@ -1057,28 +1090,36 @@ function M:CreateSettingsWindow()
 				v,
 				SimpleBossModsDB.cfg.privateAuras.x,
 				SimpleBossModsDB.cfg.privateAuras.y,
-				SimpleBossModsDB.cfg.privateAuras.soundKitID
+				SimpleBossModsDB.cfg.privateAuras.sound
 			)
 		end,
 		"Icon growth direction from the private aura anchor."
 	)
 
 	local privateSound = CreateSection(privateTab, "Sound")
-	AddSoundDropdownRow(privateSound, "Private Aura Sound",
-		privateAuraSoundOptions,
-		function() return SimpleBossModsDB.cfg.privateAuras.soundKitID or 0 end,
-		function(v)
-			M:ApplyPrivateAuraConfig(
-				SimpleBossModsDB.cfg.privateAuras.size,
-				SimpleBossModsDB.cfg.privateAuras.gap,
-				SimpleBossModsDB.cfg.privateAuras.growDirection,
-				SimpleBossModsDB.cfg.privateAuras.x,
-				SimpleBossModsDB.cfg.privateAuras.y,
-				v
-			)
-		end,
-		"Plays when a new private aura appears."
-	)
+	local legacySoundOptions = buildPrivateAuraSoundOptions()
+	if legacySoundOptions then
+		AddDropdownRow(privateSound, "Private Aura Sound",
+			legacySoundOptions,
+			function() return SimpleBossModsDB.cfg.privateAuras.sound end,
+			function(v)
+				M:ApplyPrivateAuraConfig(
+					SimpleBossModsDB.cfg.privateAuras.size,
+					SimpleBossModsDB.cfg.privateAuras.gap,
+					SimpleBossModsDB.cfg.privateAuras.growDirection,
+					SimpleBossModsDB.cfg.privateAuras.x,
+					SimpleBossModsDB.cfg.privateAuras.y,
+					v
+				)
+			end,
+			"Plays when a new private aura appears."
+		)
+	else
+		local row = CreateRow(privateSound, ROW_H)
+		local fs = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+		fs:SetPoint("LEFT", row, "LEFT", LABEL_X, 0)
+		fs:SetText("LibSharedMedia is not available.")
+	end
 
 	AddButton(privateSound, "Test Private Aura Sound", function()
 		if M.PlayPrivateAuraSound then
@@ -1101,11 +1142,643 @@ function M:CreateSettingsWindow()
 	end)
 
 	panel:SetScript("OnHide", function()
+		M:StopTest()
 		M:LayoutAll()
 	end)
 
 	self._settingsWindow = panel
 	return panel
+end
+
+-- =========================
+-- Settings Window (AceGUI)
+-- =========================
+function M:CreateSettingsWindow()
+	if not AG then
+		return self:CreateLegacySettingsWindow()
+	end
+	if isGUIOpen then return self._settingsWindow end
+	if InCombatLockdown() then return end
+	if self.EnsureDefaults then
+		self:EnsureDefaults()
+	end
+	M.SyncLiveConfig()
+
+	isGUIOpen = true
+	local addon = self
+
+	local frame = AG:Create("Frame")
+	frame:SetTitle("Simple Boss Mods")
+	frame:SetLayout("Fill")
+	frame:SetWidth(900)
+	frame:SetHeight(600)
+	frame:EnableResize(false)
+	frame:SetCallback("OnClose", function(widget)
+		addon:StopTest()
+		AG:Release(widget)
+		isGUIOpen = false
+		addon._settingsWindow = nil
+		addon._settingsTabGroup = nil
+		addon._settingsTabStatus = nil
+	end)
+	frame.frame:SetClampedToScreen(true)
+	frame.frame:SetFrameStrata("DIALOG")
+
+	addon._settingsWindow = frame
+	local baseFrame = frame.frame
+	local statusbg = frame.statustext and frame.statustext:GetParent() or nil
+
+	local testBar = CreateFrame("Frame", nil, baseFrame)
+	testBar:SetPoint("BOTTOMLEFT", 15, 15)
+	testBar:SetHeight(24)
+	testBar:SetFrameLevel(baseFrame:GetFrameLevel() + 5)
+
+	local startTestBtn = CreateFrame("Button", nil, testBar, "UIPanelButtonTemplate")
+	startTestBtn:SetSize(90, 20)
+	startTestBtn:SetPoint("LEFT", testBar, "LEFT", 0, 0)
+	startTestBtn:SetText("Start Test")
+	startTestBtn:SetScript("OnClick", function() addon:StartTest() end)
+
+	local stopTestBtn = CreateFrame("Button", nil, testBar, "UIPanelButtonTemplate")
+	stopTestBtn:SetSize(90, 20)
+	stopTestBtn:SetPoint("LEFT", startTestBtn, "RIGHT", 6, 0)
+	stopTestBtn:SetText("Stop Test")
+	stopTestBtn:SetScript("OnClick", function() addon:StopTest() end)
+
+	testBar:SetWidth(startTestBtn:GetWidth() + stopTestBtn:GetWidth() + 6)
+
+	if statusbg then
+		statusbg:ClearAllPoints()
+		statusbg:SetPoint("BOTTOMLEFT", testBar, "BOTTOMRIGHT", 8, 0)
+		statusbg:SetPoint("BOTTOMRIGHT", -132, 15)
+	end
+
+	local function addNumberInput(container, label, getValue, setValue, width)
+		local input = AG:Create("EditBox")
+		input:SetLabel(label)
+		input:SetText(tostring(getValue()))
+		if width then
+			input:SetRelativeWidth(width)
+		else
+			input:SetFullWidth(true)
+		end
+		input:SetCallback("OnEnterPressed", function(widget, _, text)
+			local value = tonumber(text)
+			if value == nil then
+				widget:SetText(tostring(getValue()))
+				return
+			end
+			setValue(value)
+			widget:SetText(tostring(getValue()))
+		end)
+		container:AddChild(input)
+		return input
+	end
+
+	local function addCheckBox(container, label, getValue, setValue, width)
+		local cb = AG:Create("CheckBox")
+		cb:SetLabel(label)
+		cb:SetValue(getValue() and true or false)
+		if width then
+			cb:SetRelativeWidth(width)
+		else
+			cb:SetFullWidth(true)
+		end
+		cb:SetCallback("OnValueChanged", function(_, _, value)
+			setValue(value)
+		end)
+		container:AddChild(cb)
+		return cb
+	end
+
+	local function addDropdown(container, label, list, getValue, setValue, width)
+		local dd = AG:Create("Dropdown")
+		dd:SetLabel(label)
+		dd:SetList(list)
+		dd:SetValue(getValue())
+		if width then
+			dd:SetRelativeWidth(width)
+		else
+			dd:SetFullWidth(true)
+		end
+		dd:SetCallback("OnValueChanged", function(widget, _, value)
+			setValue(value)
+			widget:SetValue(getValue())
+		end)
+		container:AddChild(dd)
+		return dd
+	end
+
+	local function addColorPicker(container, label, getValue, setValue, width)
+		local cp = AG:Create("ColorPicker")
+		cp:SetLabel(label)
+		cp:SetHasAlpha(true)
+		local r, g, b, a = getValue()
+		cp:SetColor(r, g, b, a)
+		if width then
+			cp:SetRelativeWidth(width)
+		else
+			cp:SetFullWidth(true)
+		end
+		cp:SetCallback("OnValueChanged", function(_, _, nr, ng, nb, na)
+			setValue(nr, ng, nb, na)
+		end)
+		container:AddChild(cp)
+		return cp
+	end
+
+	local function getPrivateAuraSoundList()
+		if not LSM then return nil end
+		return LSM:HashTable("sound")
+	end
+
+	local function buildGeneralTab(container)
+		local position = AG:Create("InlineGroup")
+		position:SetTitle("Position")
+		position:SetLayout("Flow")
+		position:SetFullWidth(true)
+		container:AddChild(position)
+
+		addNumberInput(position, "X Offset",
+			function() return SimpleBossModsDB.pos.x or 0 end,
+			function(v)
+				addon:ApplyGeneralConfig(
+					v,
+					SimpleBossModsDB.pos.y or 0,
+					SimpleBossModsDB.cfg.general.gap or 6,
+					SimpleBossModsDB.cfg.general.mirror,
+					SimpleBossModsDB.cfg.general.barsBelow,
+					SimpleBossModsDB.cfg.general.autoInsertKeystone
+				)
+			end,
+			0.33
+		)
+
+		addNumberInput(position, "Y Offset",
+			function() return SimpleBossModsDB.pos.y or 0 end,
+			function(v)
+				addon:ApplyGeneralConfig(
+					SimpleBossModsDB.pos.x or 0,
+					v,
+					SimpleBossModsDB.cfg.general.gap or 6,
+					SimpleBossModsDB.cfg.general.mirror,
+					SimpleBossModsDB.cfg.general.barsBelow,
+					SimpleBossModsDB.cfg.general.autoInsertKeystone
+				)
+			end,
+			0.33
+		)
+
+		addNumberInput(position, "Gap",
+			function() return SimpleBossModsDB.cfg.general.gap or 6 end,
+			function(v)
+				addon:ApplyGeneralConfig(
+					SimpleBossModsDB.pos.x or 0,
+					SimpleBossModsDB.pos.y or 0,
+					v,
+					SimpleBossModsDB.cfg.general.mirror,
+					SimpleBossModsDB.cfg.general.barsBelow,
+					SimpleBossModsDB.cfg.general.autoInsertKeystone
+				)
+			end,
+			0.33
+		)
+
+		local behavior = AG:Create("InlineGroup")
+		behavior:SetTitle("Behavior")
+		behavior:SetLayout("Flow")
+		behavior:SetFullWidth(true)
+		container:AddChild(behavior)
+
+		addCheckBox(behavior, "Mirror Horizontally",
+			function() return SimpleBossModsDB.cfg.general.mirror end,
+			function(v)
+				addon:ApplyGeneralConfig(
+					SimpleBossModsDB.pos.x or 0,
+					SimpleBossModsDB.pos.y or 0,
+					SimpleBossModsDB.cfg.general.gap or 6,
+					v,
+					SimpleBossModsDB.cfg.general.barsBelow,
+					SimpleBossModsDB.cfg.general.autoInsertKeystone
+				)
+			end,
+			0.5
+		)
+
+		addCheckBox(behavior, "Mirror Vertically",
+			function() return SimpleBossModsDB.cfg.general.barsBelow end,
+			function(v)
+				addon:ApplyGeneralConfig(
+					SimpleBossModsDB.pos.x or 0,
+					SimpleBossModsDB.pos.y or 0,
+					SimpleBossModsDB.cfg.general.gap or 6,
+					SimpleBossModsDB.cfg.general.mirror,
+					v,
+					SimpleBossModsDB.cfg.general.autoInsertKeystone
+				)
+			end,
+			0.5
+		)
+
+		addCheckBox(behavior, "Auto Insert Keystone",
+			function() return SimpleBossModsDB.cfg.general.autoInsertKeystone end,
+			function(v)
+				addon:ApplyGeneralConfig(
+					SimpleBossModsDB.pos.x or 0,
+					SimpleBossModsDB.pos.y or 0,
+					SimpleBossModsDB.cfg.general.gap or 6,
+					SimpleBossModsDB.cfg.general.mirror,
+					SimpleBossModsDB.cfg.general.barsBelow,
+					v
+				)
+			end,
+			1
+		)
+	end
+
+	local function buildIconsTab(container)
+		local icons = AG:Create("InlineGroup")
+		icons:SetTitle("Icons")
+		icons:SetLayout("Flow")
+		icons:SetFullWidth(true)
+		container:AddChild(icons)
+
+		addNumberInput(icons, "Icon Size",
+			function() return SimpleBossModsDB.cfg.icons.size end,
+			function(v) addon:ApplyIconConfig(v, SimpleBossModsDB.cfg.icons.fontSize, SimpleBossModsDB.cfg.icons.borderThickness) end,
+			0.33
+		)
+
+		addNumberInput(icons, "Icon Font Size",
+			function() return SimpleBossModsDB.cfg.icons.fontSize end,
+			function(v) addon:ApplyIconConfig(SimpleBossModsDB.cfg.icons.size, v, SimpleBossModsDB.cfg.icons.borderThickness) end,
+			0.33
+		)
+
+		addNumberInput(icons, "Icon Border Thickness",
+			function() return SimpleBossModsDB.cfg.icons.borderThickness end,
+			function(v) addon:ApplyIconConfig(SimpleBossModsDB.cfg.icons.size, SimpleBossModsDB.cfg.icons.fontSize, v) end,
+			0.33
+		)
+
+		if LSM then
+			local iconFontDropdown = AG:Create("LSM30_Font")
+			iconFontDropdown:SetLabel("Icon Font")
+			iconFontDropdown:SetList(LSM:HashTable("font"))
+			iconFontDropdown:SetValue(SimpleBossModsDB.cfg.icons.font)
+			iconFontDropdown:SetFullWidth(true)
+			iconFontDropdown:SetCallback("OnValueChanged", function(widget, _, value)
+				addon:ApplyIconFontConfig(value)
+				widget:SetValue(SimpleBossModsDB.cfg.icons.font)
+			end)
+			icons:AddChild(iconFontDropdown)
+		else
+			local label = AG:Create("Label")
+			label:SetText("LibSharedMedia is not available.")
+			label:SetFullWidth(true)
+			icons:AddChild(label)
+		end
+	end
+
+	local function buildBarsTab(container)
+		local bars = AG:Create("InlineGroup")
+		bars:SetTitle("Bars")
+		bars:SetLayout("Flow")
+		bars:SetFullWidth(true)
+		container:AddChild(bars)
+
+		addNumberInput(bars, "Bar Width",
+			function() return SimpleBossModsDB.cfg.bars.width end,
+			function(v) addon:ApplyBarConfig(v, SimpleBossModsDB.cfg.bars.height, SimpleBossModsDB.cfg.bars.fontSize, SimpleBossModsDB.cfg.bars.borderThickness) end,
+			0.25
+		)
+
+		addNumberInput(bars, "Bar Height",
+			function() return SimpleBossModsDB.cfg.bars.height end,
+			function(v) addon:ApplyBarConfig(SimpleBossModsDB.cfg.bars.width, v, SimpleBossModsDB.cfg.bars.fontSize, SimpleBossModsDB.cfg.bars.borderThickness) end,
+			0.25
+		)
+
+		addNumberInput(bars, "Bar Font Size",
+			function() return SimpleBossModsDB.cfg.bars.fontSize end,
+			function(v) addon:ApplyBarConfig(SimpleBossModsDB.cfg.bars.width, SimpleBossModsDB.cfg.bars.height, v, SimpleBossModsDB.cfg.bars.borderThickness) end,
+			0.25
+		)
+
+		addNumberInput(bars, "Bar Border Thickness",
+			function() return SimpleBossModsDB.cfg.bars.borderThickness end,
+			function(v) addon:ApplyBarConfig(SimpleBossModsDB.cfg.bars.width, SimpleBossModsDB.cfg.bars.height, SimpleBossModsDB.cfg.bars.fontSize, v) end,
+			0.25
+		)
+
+		addNumberInput(bars, "Icon -> Bar Threshold (sec)",
+			function() return SimpleBossModsDB.cfg.general.thresholdToBar end,
+			function(v) addon:ApplyBarThresholdConfig(v) end,
+			1
+		)
+
+		addCheckBox(bars, "Swap Bar Icon Side",
+			function() return SimpleBossModsDB.cfg.bars.swapIconSide end,
+			function(v) addon:ApplyBarIconSideConfig(v) end,
+			0.5
+		)
+
+		addCheckBox(bars, "Hide Bar Icon",
+			function() return SimpleBossModsDB.cfg.bars.hideIcon end,
+			function(v) addon:ApplyBarIconVisibilityConfig(v) end,
+			0.5
+		)
+
+		local media = AG:Create("InlineGroup")
+		media:SetTitle("Fonts & Textures")
+		media:SetLayout("Flow")
+		media:SetFullWidth(true)
+		container:AddChild(media)
+
+		if LSM then
+			local fontDropdown = AG:Create("LSM30_Font")
+			fontDropdown:SetLabel("Font")
+			fontDropdown:SetList(LSM:HashTable("font"))
+			fontDropdown:SetValue(SimpleBossModsDB.cfg.general.font)
+			fontDropdown:SetRelativeWidth(0.5)
+			fontDropdown:SetCallback("OnValueChanged", function(widget, _, value)
+				addon:ApplyFontConfig(value)
+				widget:SetValue(SimpleBossModsDB.cfg.general.font)
+			end)
+			media:AddChild(fontDropdown)
+
+			local barTextureDropdown = AG:Create("LSM30_Statusbar")
+			barTextureDropdown:SetLabel("Bar Texture")
+			barTextureDropdown:SetList(LSM:HashTable("statusbar"))
+			barTextureDropdown:SetValue(SimpleBossModsDB.cfg.bars.texture)
+			barTextureDropdown:SetRelativeWidth(0.5)
+			barTextureDropdown:SetCallback("OnValueChanged", function(widget, _, value)
+				addon:ApplyBarTextureConfig(value)
+				widget:SetValue(SimpleBossModsDB.cfg.bars.texture)
+			end)
+			media:AddChild(barTextureDropdown)
+		else
+			local label = AG:Create("Label")
+			label:SetText("LibSharedMedia is not available.")
+			label:SetFullWidth(true)
+			media:AddChild(label)
+		end
+
+		local indicators = AG:Create("InlineGroup")
+		indicators:SetTitle("Indicators")
+		indicators:SetLayout("Flow")
+		indicators:SetFullWidth(true)
+		container:AddChild(indicators)
+
+		addNumberInput(indicators, "Icon Indicator Size",
+			function() return SimpleBossModsDB.cfg.indicators.iconSize or 0 end,
+			function(v) addon:ApplyIndicatorConfig(v, SimpleBossModsDB.cfg.indicators.barSize or 0) end,
+			0.5
+		)
+
+		addNumberInput(indicators, "Bar Indicator Size",
+			function() return SimpleBossModsDB.cfg.indicators.barSize or 0 end,
+			function(v) addon:ApplyIndicatorConfig(SimpleBossModsDB.cfg.indicators.iconSize or 0, v) end,
+			0.5
+		)
+
+		local colors = AG:Create("InlineGroup")
+		colors:SetTitle("Colors")
+		colors:SetLayout("Flow")
+		colors:SetFullWidth(true)
+		container:AddChild(colors)
+
+		addColorPicker(colors, "Bar Foreground Color",
+			function() return L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A end,
+			function(r, g, b, a) addon:ApplyBarColor(r, g, b, a) end,
+			0.5
+		)
+
+		addColorPicker(colors, "Bar Background Color",
+			function() return L.BAR_BG_R, L.BAR_BG_G, L.BAR_BG_B, L.BAR_BG_A end,
+			function(r, g, b, a) addon:ApplyBarBgColor(r, g, b, a) end,
+			0.5
+		)
+	end
+
+	local function buildPrivateTab(container)
+		local enabled = SimpleBossModsDB.cfg.privateAuras.enabled ~= false
+		local toggle = AG:Create("CheckBox")
+		toggle:SetLabel("Enable Private Aura Tracking")
+		toggle:SetValue(enabled)
+		toggle:SetFullWidth(true)
+		toggle:SetCallback("OnValueChanged", function(_, _, value)
+			addon:ApplyPrivateAuraEnabled(value)
+			container:ReleaseChildren()
+			buildPrivateTab(container)
+		end)
+		container:AddChild(toggle)
+
+		if not enabled then
+			local note = AG:Create("Label")
+			note:SetText("Private aura tracking is currently disabled.")
+			note:SetFullWidth(true)
+			container:AddChild(note)
+			return
+		end
+
+		local layout = AG:Create("InlineGroup")
+		layout:SetTitle("Layout")
+		layout:SetLayout("Flow")
+		layout:SetFullWidth(true)
+		container:AddChild(layout)
+
+		addNumberInput(layout, "Private Aura X Offset",
+			function() return SimpleBossModsDB.cfg.privateAuras.x or 0 end,
+			function(v)
+				addon:ApplyPrivateAuraConfig(
+					SimpleBossModsDB.cfg.privateAuras.size,
+					SimpleBossModsDB.cfg.privateAuras.gap,
+					SimpleBossModsDB.cfg.privateAuras.growDirection,
+					v,
+					SimpleBossModsDB.cfg.privateAuras.y,
+					SimpleBossModsDB.cfg.privateAuras.sound
+				)
+			end,
+			0.5
+		)
+
+		addNumberInput(layout, "Private Aura Y Offset",
+			function() return SimpleBossModsDB.cfg.privateAuras.y or 0 end,
+			function(v)
+				addon:ApplyPrivateAuraConfig(
+					SimpleBossModsDB.cfg.privateAuras.size,
+					SimpleBossModsDB.cfg.privateAuras.gap,
+					SimpleBossModsDB.cfg.privateAuras.growDirection,
+					SimpleBossModsDB.cfg.privateAuras.x,
+					v,
+					SimpleBossModsDB.cfg.privateAuras.sound
+				)
+			end,
+			0.5
+		)
+
+		addNumberInput(layout, "Private Aura Icon Size",
+			function() return SimpleBossModsDB.cfg.privateAuras.size end,
+			function(v)
+				addon:ApplyPrivateAuraConfig(
+					v,
+					SimpleBossModsDB.cfg.privateAuras.gap,
+					SimpleBossModsDB.cfg.privateAuras.growDirection,
+					SimpleBossModsDB.cfg.privateAuras.x,
+					SimpleBossModsDB.cfg.privateAuras.y,
+					SimpleBossModsDB.cfg.privateAuras.sound
+				)
+			end,
+			0.5
+		)
+
+		addNumberInput(layout, "Private Aura Gap",
+			function() return SimpleBossModsDB.cfg.privateAuras.gap end,
+			function(v)
+				addon:ApplyPrivateAuraConfig(
+					SimpleBossModsDB.cfg.privateAuras.size,
+					v,
+					SimpleBossModsDB.cfg.privateAuras.growDirection,
+					SimpleBossModsDB.cfg.privateAuras.x,
+					SimpleBossModsDB.cfg.privateAuras.y,
+					SimpleBossModsDB.cfg.privateAuras.sound
+				)
+			end,
+			0.5
+		)
+
+		addDropdown(layout, "Private Aura Grow Direction",
+			{ RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down" },
+			function() return SimpleBossModsDB.cfg.privateAuras.growDirection end,
+			function(v)
+				addon:ApplyPrivateAuraConfig(
+					SimpleBossModsDB.cfg.privateAuras.size,
+					SimpleBossModsDB.cfg.privateAuras.gap,
+					v,
+					SimpleBossModsDB.cfg.privateAuras.x,
+					SimpleBossModsDB.cfg.privateAuras.y,
+					SimpleBossModsDB.cfg.privateAuras.sound
+				)
+			end,
+			0.5
+		)
+
+		local sound = AG:Create("InlineGroup")
+		sound:SetTitle("Sound")
+		sound:SetLayout("Flow")
+		sound:SetFullWidth(true)
+		container:AddChild(sound)
+
+		local channelList = {
+			Master = "Master",
+			SFX = "SFX",
+			Music = "Music",
+			Ambience = "Ambience",
+			Dialog = "Dialog",
+		}
+
+		addDropdown(sound, "Sound Channel",
+			channelList,
+			function() return SimpleBossModsDB.cfg.privateAuras.soundChannel end,
+			function(v)
+				addon:ApplyPrivateAuraSoundChannel(v)
+			end,
+			1
+		)
+
+		if LSM then
+			local soundDropdown = AG:Create("LSM30_Sound")
+			soundDropdown:SetLabel("Private Aura Sound")
+			soundDropdown:SetList(getPrivateAuraSoundList())
+			soundDropdown:SetValue(SimpleBossModsDB.cfg.privateAuras.sound)
+			soundDropdown:SetRelativeWidth(0.7)
+			soundDropdown:SetCallback("OnValueChanged", function(widget, _, value)
+				addon:ApplyPrivateAuraConfig(
+					SimpleBossModsDB.cfg.privateAuras.size,
+					SimpleBossModsDB.cfg.privateAuras.gap,
+					SimpleBossModsDB.cfg.privateAuras.growDirection,
+					SimpleBossModsDB.cfg.privateAuras.x,
+					SimpleBossModsDB.cfg.privateAuras.y,
+					value
+				)
+				widget:SetValue(SimpleBossModsDB.cfg.privateAuras.sound)
+			end)
+			sound:AddChild(soundDropdown)
+		else
+			local label = AG:Create("Label")
+			label:SetText("LibSharedMedia is not available.")
+			label:SetFullWidth(true)
+			sound:AddChild(label)
+		end
+
+		local testBtn = AG:Create("Button")
+		testBtn:SetText("Test Sound")
+		if LSM then
+			testBtn:SetRelativeWidth(0.3)
+		else
+			testBtn:SetFullWidth(true)
+		end
+		testBtn:SetCallback("OnClick", function()
+			if addon.PlayPrivateAuraSound then
+				addon:PlayPrivateAuraSound()
+			end
+		end)
+		sound:AddChild(testBtn)
+	end
+
+	local status = { selected = "General" }
+	addon._settingsTabStatus = status
+
+	local tabs = AG:Create("TabGroup")
+	tabs:SetLayout("Flow")
+	tabs:SetFullWidth(true)
+	tabs:SetFullHeight(true)
+	tabs:SetTabs({
+		{ text = "General", value = "General" },
+		{ text = "Icons", value = "Icons" },
+		{ text = "Bars", value = "Bars" },
+		{ text = "Private Auras", value = "Private" },
+	})
+	tabs:SetStatusTable(status)
+	local validTabs = {
+		General = true,
+		Icons = true,
+		Bars = true,
+		Private = true,
+	}
+	if status.selected == "Media" then
+		status.selected = "Bars"
+	elseif not validTabs[status.selected] then
+		status.selected = "General"
+	end
+	tabs:SetCallback("OnGroupSelected", function(container, _, group)
+		container:ReleaseChildren()
+		local scroll = AG:Create("ScrollFrame")
+		scroll:SetLayout("Flow")
+		scroll:SetFullWidth(true)
+		scroll:SetFullHeight(true)
+		container:AddChild(scroll)
+
+		if group == "General" then
+			buildGeneralTab(scroll)
+		elseif group == "Icons" then
+			buildIconsTab(scroll)
+		elseif group == "Bars" then
+			buildBarsTab(scroll)
+		elseif group == "Private" then
+			buildPrivateTab(scroll)
+		end
+		scroll:DoLayout()
+		if scroll.FixScroll then
+			scroll:FixScroll()
+		end
+	end)
+	tabs:SelectTab(status.selected)
+	addon._settingsTabGroup = tabs
+	frame:AddChild(tabs)
+
+	return frame
 end
 
 -- =========================

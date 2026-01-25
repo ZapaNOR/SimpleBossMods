@@ -11,6 +11,16 @@ end
 M.Const = M.Const or {}
 local C = M.Const
 
+local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
+M.LSM = LSM
+if LSM then
+	LSM:Register("font", "SBM Expressway", "Interface\\AddOns\\SimpleBossMods\\media\\fonts\\Expressway.ttf")
+	LSM:Register("statusbar", "SBM Flat", "Interface\\Buttons\\WHITE8X8")
+	LSM:Register("statusbar", "SBM Default", "Interface\\TARGETINGFRAME\\UI-StatusBar")
+	LSM:Register("sound", "SBM: None", 0)
+	LSM:Register("sound", "SBM: Raid Warning", 567397)
+end
+
 -- Font
 C.FONT_PATH = "Interface\\AddOns\\SimpleBossMods\\media\\fonts\\Expressway.ttf"
 C.FONT_FLAGS = "OUTLINE" -- or "THICKOUTLINE"
@@ -46,6 +56,23 @@ C.BAR_END_INDICATOR_GAP_X = 6
 C.BAR_FG_R, C.BAR_FG_G, C.BAR_FG_B, C.BAR_FG_A = (255/255), (152/255), (0/255), 1.0
 C.BAR_BG_R, C.BAR_BG_G, C.BAR_BG_B, C.BAR_BG_A = 0.0, 0.0, 0.0, 0.90
 
+local SOUND_CHANNELS = {
+	Master = "Master",
+	MASTER = "Master",
+	SFX = "SFX",
+	Music = "Music",
+	MUSIC = "Music",
+	Ambience = "Ambience",
+	AMBIENCE = "Ambience",
+	Dialog = "Dialog",
+	DIALOG = "Dialog",
+}
+
+function M.NormalizeSoundChannel(channel)
+	if type(channel) ~= "string" then return nil end
+	return SOUND_CHANNELS[channel]
+end
+
 M.Defaults = M.Defaults or {
 	pos = { x = 500, y = 50 },
 	cfg = {
@@ -55,8 +82,9 @@ M.Defaults = M.Defaults or {
 			barsBelow = false,
 			autoInsertKeystone = false,
 			thresholdToBar = C.THRESHOLD_TO_BAR,
+			font = "SBM Expressway",
 		},
-		icons = { size = 64, fontSize = 32, borderThickness = 2 },
+		icons = { size = 64, fontSize = 32, borderThickness = 2, font = "SBM Expressway" },
 		bars = {
 			width = 352,
 			height = 36,
@@ -64,6 +92,7 @@ M.Defaults = M.Defaults or {
 			borderThickness = 2,
 			swapIconSide = false,
 			hideIcon = false,
+			texture = "SBM Flat",
 			color = {
 				r = C.BAR_FG_R,
 				g = C.BAR_FG_G,
@@ -79,12 +108,14 @@ M.Defaults = M.Defaults or {
 		},
 		indicators = { iconSize = 10, barSize = 20 },
 		privateAuras = {
+			enabled = true,
 			size = 48,
 			gap = 6,
 			growDirection = "RIGHT",
 			x = 0,
 			y = 0,
-			soundKitID = 316476,
+			sound = "SBM: Raid Warning",
+			soundChannel = "Master",
 		},
 	},
 }
@@ -115,11 +146,17 @@ function M:EnsureDefaults()
 	if cfg.general.thresholdToBar == nil then
 		cfg.general.thresholdToBar = M.Defaults.cfg.general.thresholdToBar
 	end
+	if cfg.general.font == nil then
+		cfg.general.font = M.Defaults.cfg.general.font
+	end
 	cfg.icons = cfg.icons or {
 		size = M.Defaults.cfg.icons.size,
 		fontSize = M.Defaults.cfg.icons.fontSize,
 		borderThickness = M.Defaults.cfg.icons.borderThickness,
 	}
+	if cfg.icons.font == nil then
+		cfg.icons.font = cfg.general.font or M.Defaults.cfg.icons.font
+	end
 	cfg.bars = cfg.bars or {
 		width = M.Defaults.cfg.bars.width,
 		height = M.Defaults.cfg.bars.height,
@@ -133,6 +170,9 @@ function M:EnsureDefaults()
 	end
 	if cfg.bars.hideIcon == nil then
 		cfg.bars.hideIcon = M.Defaults.cfg.bars.hideIcon
+	end
+	if cfg.bars.texture == nil then
+		cfg.bars.texture = M.Defaults.cfg.bars.texture
 	end
 	cfg.bars.color = cfg.bars.color or {
 		r = M.Defaults.cfg.bars.color.r,
@@ -166,15 +206,19 @@ function M:EnsureDefaults()
 		barSize = M.Defaults.cfg.indicators.barSize,
 	}
 	cfg.privateAuras = cfg.privateAuras or {
+		enabled = M.Defaults.cfg.privateAuras.enabled,
 		size = M.Defaults.cfg.privateAuras.size,
 		gap = M.Defaults.cfg.privateAuras.gap,
 		growDirection = M.Defaults.cfg.privateAuras.growDirection,
 		x = M.Defaults.cfg.privateAuras.x,
 		y = M.Defaults.cfg.privateAuras.y,
-		soundKitID = M.Defaults.cfg.privateAuras.soundKitID,
+		sound = M.Defaults.cfg.privateAuras.sound,
 	}
 	if cfg.privateAuras.size == nil then
 		cfg.privateAuras.size = M.Defaults.cfg.privateAuras.size
+	end
+	if cfg.privateAuras.enabled == nil then
+		cfg.privateAuras.enabled = M.Defaults.cfg.privateAuras.enabled
 	end
 	if cfg.privateAuras.gap == nil then
 		cfg.privateAuras.gap = M.Defaults.cfg.privateAuras.gap
@@ -185,8 +229,23 @@ function M:EnsureDefaults()
 	if cfg.privateAuras.y == nil then
 		cfg.privateAuras.y = M.Defaults.cfg.privateAuras.y
 	end
-	if cfg.privateAuras.soundKitID == nil then
-		cfg.privateAuras.soundKitID = M.Defaults.cfg.privateAuras.soundKitID
+	if cfg.privateAuras.sound == nil then
+		if type(cfg.privateAuras.soundKitID) == "number" then
+			local legacyKey = "SBM: Legacy " .. tostring(cfg.privateAuras.soundKitID)
+			if LSM and LSM.IsValid and not LSM:IsValid("sound", legacyKey) then
+				LSM:Register("sound", legacyKey, cfg.privateAuras.soundKitID)
+			end
+			cfg.privateAuras.sound = legacyKey
+		else
+			cfg.privateAuras.sound = M.Defaults.cfg.privateAuras.sound
+		end
+	end
+	if cfg.privateAuras.soundChannel == nil then
+		cfg.privateAuras.soundChannel = M.Defaults.cfg.privateAuras.soundChannel
+	end
+	do
+		local channel = M.NormalizeSoundChannel(cfg.privateAuras.soundChannel) or M.Defaults.cfg.privateAuras.soundChannel
+		cfg.privateAuras.soundChannel = channel
 	end
 	do
 		local dir = cfg.privateAuras.growDirection
@@ -225,6 +284,7 @@ function M.SyncLiveConfig()
 	local bc = SimpleBossModsDB.cfg.bars
 	local inc = SimpleBossModsDB.cfg.indicators
 	local pc = SimpleBossModsDB.cfg.privateAuras or M.Defaults.cfg.privateAuras
+	L.PRIVATE_AURA_ENABLED = pc.enabled ~= false
 
 	L.GAP = tonumber(gc.gap) or 6
 	L.MIRROR = gc.mirror and true or false
@@ -235,6 +295,11 @@ function M.SyncLiveConfig()
 	L.ICON_SIZE = ic.size
 	L.ICON_FONT_SIZE = ic.fontSize
 	L.ICON_BORDER_THICKNESS = ic.borderThickness
+	L.ICON_FONT_KEY = ic.font or M.Defaults.cfg.icons.font
+	L.ICON_FONT_PATH = C.FONT_PATH
+	if LSM then
+		L.ICON_FONT_PATH = LSM:Fetch("font", L.ICON_FONT_KEY) or C.FONT_PATH
+	end
 
 	L.BAR_WIDTH = bc.width
 	L.BAR_HEIGHT = bc.height
@@ -242,6 +307,16 @@ function M.SyncLiveConfig()
 	L.BAR_BORDER_THICKNESS = bc.borderThickness
 	L.BAR_ICON_SWAP = bc.swapIconSide and true or false
 	L.BAR_ICON_HIDDEN = bc.hideIcon and true or false
+	L.FONT_KEY = gc.font or M.Defaults.cfg.general.font
+	L.FONT_PATH = C.FONT_PATH
+	if LSM then
+		L.FONT_PATH = LSM:Fetch("font", L.FONT_KEY) or C.FONT_PATH
+	end
+	L.BAR_TEX_KEY = bc.texture or M.Defaults.cfg.bars.texture
+	L.BAR_TEX = C.BAR_TEX_DEFAULT
+	if LSM then
+		L.BAR_TEX = LSM:Fetch("statusbar", L.BAR_TEX_KEY) or C.BAR_TEX_DEFAULT
+	end
 	local barColor = bc.color or {}
 	L.BAR_FG_R = U.clamp(tonumber(barColor.r) or C.BAR_FG_R, 0, 1)
 	L.BAR_FG_G = U.clamp(tonumber(barColor.g) or C.BAR_FG_G, 0, 1)
@@ -272,7 +347,27 @@ function M.SyncLiveConfig()
 	end
 	L.PRIVATE_AURA_X = tonumber(pc.x) or 0
 	L.PRIVATE_AURA_Y = tonumber(pc.y) or 0
-	L.PRIVATE_AURA_SOUND_KIT = tonumber(pc.soundKitID) or 0
+	local soundKey = pc.sound or M.Defaults.cfg.privateAuras.sound
+	L.PRIVATE_AURA_SOUND_KEY = soundKey
+	local soundValue = nil
+	if type(soundKey) == "number" then
+		soundValue = soundKey
+	elseif type(soundKey) == "string" then
+		if LSM then
+			soundValue = LSM:Fetch("sound", soundKey)
+		end
+		if not soundValue then
+			local numeric = tonumber(soundKey)
+			if numeric then
+				soundValue = numeric
+			end
+		end
+	end
+	if soundValue == nil and type(pc.soundKitID) == "number" then
+		soundValue = pc.soundKitID
+	end
+	L.PRIVATE_AURA_SOUND = soundValue
+	L.PRIVATE_AURA_SOUND_CHANNEL = M.NormalizeSoundChannel(pc.soundChannel) or M.Defaults.cfg.privateAuras.soundChannel
 end
 
 local function isSecretValue(value)
@@ -434,4 +529,3 @@ M._testTimelineEventIDs = nil
 M._testTimelineEventIDSet = nil
 M._testEditModeEventTimer = nil
 M._privateAuraAnchorIDs = nil
-M._privateAuraLastCount = nil

@@ -440,6 +440,9 @@ ef:SetScript("OnEvent", function(_, event, ...)
 	if event == "PLAYER_LOGIN" then
 		M:EnsureDefaults()
 		M.SyncLiveConfig()
+		if M.SetupPrivateAuraSoundWatcher then
+			M:SetupPrivateAuraSoundWatcher()
+		end
 
 		M:SetPosition(SimpleBossModsDB.pos.x or 0, SimpleBossModsDB.pos.y or 0)
 		M:ApplyGeneralConfig(
@@ -455,7 +458,7 @@ ef:SetScript("OnEvent", function(_, event, ...)
 		M:ApplyIndicatorConfig(SimpleBossModsDB.cfg.indicators.iconSize or 0, SimpleBossModsDB.cfg.indicators.barSize or 0)
 		if M.ApplyPrivateAuraConfig then
 			local pc = SimpleBossModsDB.cfg.privateAuras
-			M:ApplyPrivateAuraConfig(pc.size, pc.gap, pc.growDirection, pc.x, pc.y, pc.soundKitID)
+			M:ApplyPrivateAuraConfig(pc.size, pc.gap, pc.growDirection, pc.x, pc.y, pc.sound)
 		end
 
 		M:CreateSettingsPanel()
@@ -487,6 +490,10 @@ ef:SetScript("OnEvent", function(_, event, ...)
 		if name == "Blizzard_ChallengesUI" then
 			if M.SetupKeystoneAutoInsert then
 				M:SetupKeystoneAutoInsert()
+			end
+		elseif name == "Blizzard_PrivateAurasUI" then
+			if M.SetupPrivateAuraSoundWatcher then
+				M:SetupPrivateAuraSoundWatcher()
 			end
 		end
 	elseif event == "ENCOUNTER_TIMELINE_EVENT_ADDED"
@@ -638,8 +645,6 @@ SlashCmdList["SIMPLEBOSSMODS"] = function(msg)
 		handleManualTimer("break", msg:sub(6))
 		return
 	end
-
-	print(ADDON_NAME .. " commands: /sbm | /sbm settings|config|options | /sbm test [start|stop] | /sbm pull <sec> | /sbm break <min>")
 end
 
 SlashCmdList["SIMPLEBOSSMODSPULL"] = function(msg)
@@ -649,3 +654,5 @@ end
 SlashCmdList["SIMPLEBOSSMODSBREAK"] = function(msg)
 	handleManualTimer("break", msg)
 end
+
+print("|cFF00FF00Simple|rBossMods: '|cFF00FF00/sbm|r' for in-game configuration.")

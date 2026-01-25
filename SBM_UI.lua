@@ -105,6 +105,20 @@ function M:SetPrivateAuraPosition(x, y)
 	privateAurasAnchor:SetPoint("CENTER", UIParent, "CENTER", x, y + C.GLOBAL_Y_NUDGE)
 end
 
+local function hidePrivateAuraOverlays(self)
+	if not self._privateAuraOverlays then return end
+	for _, overlay in ipairs(self._privateAuraOverlays) do
+		overlay:Hide()
+	end
+end
+
+local function hideTestPrivateAuraFrames(self)
+	if not self._testPrivateAuraFrames then return end
+	for _, frame in ipairs(self._testPrivateAuraFrames) do
+		frame:Hide()
+	end
+end
+
 function M:UpdatePrivateAuraAnchor()
 	if not (C_UnitAuras and C_UnitAuras.AddPrivateAuraAnchor) then return end
 
@@ -117,6 +131,15 @@ function M:UpdatePrivateAuraAnchor()
 	end
 	self._privateAuraAnchorIDs = {}
 
+	if not L.PRIVATE_AURA_ENABLED then
+		privateAurasAnchor:Hide()
+		hidePrivateAuraOverlays(self)
+		hideTestPrivateAuraFrames(self)
+		self._privateAuraLastCount = 0
+		return
+	end
+
+	privateAurasAnchor:Show()
 	local step = L.PRIVATE_AURA_SIZE + L.PRIVATE_AURA_GAP
 	local dir = L.PRIVATE_AURA_GROW
 	for i = 1, (C.PRIVATE_AURA_MAX or 1) do
@@ -143,7 +166,7 @@ function M:UpdatePrivateAuraAnchor()
 			overlay:SetPoint("CENTER", privateAurasAnchor, "CENTER", offsetX, offsetY)
 			overlay:SetSize(L.PRIVATE_AURA_SIZE, L.PRIVATE_AURA_SIZE)
 			overlay:SetFrameLevel(privateAurasAnchor:GetFrameLevel() + 50)
-			M.ensureFullBorder(overlay, privateAuraBorderThickness(), 1, 0, 0, 1)
+			M.ensureFullBorder(overlay, privateAuraBorderThickness())
 		end
 	end
 	if self._privateAuraOverlays then
@@ -180,6 +203,7 @@ local function getVisibleChildCount(parent)
 end
 
 function M:GetPrivateAuraVisibleCount()
+	if not L.PRIVATE_AURA_ENABLED then return 0 end
 	return getVisibleChildCount(privateAurasAnchor)
 end
 
@@ -206,6 +230,34 @@ local function safeHideRegion(region)
 	end
 end
 
+local function hidePrivateAuraBorders(frame)
+	if not frame then return end
+	local icon = frame.Icon
+	local function hide(obj)
+		if not obj or obj == icon then return end
+		safeHideRegion(obj)
+	end
+
+	hide(frame.Border)
+	hide(frame.IconBorder)
+	hide(frame.IconOverlay)
+	hide(frame.BorderTexture)
+	hide(frame.Overlay)
+	hide(frame.Glow)
+
+	local regions = { frame:GetRegions() }
+	for _, region in ipairs(regions) do
+		if region ~= icon and region.GetObjectType and region:GetObjectType() == "Texture" then
+			local tex = region.GetTexture and region:GetTexture()
+			local atlas = region.GetAtlas and region:GetAtlas()
+			if (type(tex) == "string" and tex:find("Debuff%-Overlays")) or
+				(type(atlas) == "string" and atlas:lower():find("debuff")) then
+				safeHideRegion(region)
+			end
+		end
+	end
+end
+
 local function stylePrivateAuraFrame(frame)
 	if not frame then return end
 	if frame.__sbmPrivateAuraTest then return end
@@ -221,6 +273,7 @@ local function stylePrivateAuraFrame(frame)
 	if frame.Symbol then
 		safeHideRegion(frame.Symbol)
 	end
+	hidePrivateAuraBorders(frame)
 
 	local holder = frame.__sbmPrivateAuraBorder
 	if not holder then
@@ -228,16 +281,8 @@ local function stylePrivateAuraFrame(frame)
 		frame.__sbmPrivateAuraBorder = holder
 	end
 	holder:SetFrameLevel(frame:GetFrameLevel() + 6)
-	local icon = frame.Icon
-	if isForbidden(icon) then
-		icon = nil
-	end
-	if icon then
-		holder:SetAllPoints(icon)
-	else
-		holder:SetAllPoints(frame)
-	end
-	M.ensureFullBorder(holder, privateAuraBorderThickness(), 1, 0, 0, 1)
+	holder:SetAllPoints(frame)
+	M.ensureFullBorder(holder, privateAuraBorderThickness())
 end
 
 ensurePrivateAuraOverlay = function(self, index)
@@ -254,6 +299,10 @@ ensurePrivateAuraOverlay = function(self, index)
 end
 
 function M:UpdatePrivateAuraOverlays(visibleCount)
+	if not L.PRIVATE_AURA_ENABLED then
+		hidePrivateAuraOverlays(self)
+		return
+	end
 	if not self._privateAuraOverlays then return end
 	local count = visibleCount
 	if count == nil then
@@ -272,6 +321,12 @@ function M:UpdatePrivateAuraOverlays(visibleCount)
 end
 
 function M:UpdatePrivateAuraFrames(playSound)
+	if not L.PRIVATE_AURA_ENABLED then
+		hidePrivateAuraOverlays(self)
+		hideTestPrivateAuraFrames(self)
+		self._privateAuraLastCount = 0
+		return
+	end
 	if not privateAurasAnchor then return end
 	local count = 0
 	for _, child in ipairs({ privateAurasAnchor:GetChildren() }) do
@@ -286,82 +341,269 @@ function M:UpdatePrivateAuraFrames(playSound)
 	if self.UpdatePrivateAuraOverlays then
 		self:UpdatePrivateAuraOverlays(count)
 	end
-	local prev = self._privateAuraLastCount
-	self._privateAuraLastCount = count
-	if playSound and L.PRIVATE_AURA_SOUND_KIT and L.PRIVATE_AURA_SOUND_KIT ~= 0 then
-		if prev ~= nil and count > prev then
-			self:PlayPrivateAuraSound()
+	if self._privateAuraSoundUsesCount then
+		local prev = self._privateAuraLastCount
+		self._privateAuraLastCount = count
+		if playSound and L.PRIVATE_AURA_SOUND and L.PRIVATE_AURA_SOUND ~= 0 then
+			if prev ~= nil and count > prev then
+				self:PlayPrivateAuraSound()
+			end
 		end
 	end
 end
 
-local function ensureTestPrivateAuraFrame(self)
-	if self._testPrivateAuraFrame then return self._testPrivateAuraFrame end
-	local f = CreateFrame("Frame", nil, privateAurasAnchor)
-	f:SetSize(L.PRIVATE_AURA_SIZE, L.PRIVATE_AURA_SIZE)
-	f:SetPoint("CENTER", privateAurasAnchor, "CENTER", 0, 0)
-	f.__sbmPrivateAuraTest = true
+local function ensureTestPrivateAuraFrames(self)
+	if self._testPrivateAuraFrames then return self._testPrivateAuraFrames end
+	local frames = {}
+	for i = 1, 4 do
+		local f = CreateFrame("Frame", nil, privateAurasAnchor)
+		f:SetSize(L.PRIVATE_AURA_SIZE, L.PRIVATE_AURA_SIZE)
+		f.__sbmPrivateAuraTest = true
 
-	local bg = f:CreateTexture(nil, "ARTWORK")
-	bg:SetAllPoints()
-	bg:SetColorTexture(0, 0, 0, 0.6)
-	f.bg = bg
+		local bg = f:CreateTexture(nil, "ARTWORK")
+		bg:SetAllPoints()
+		f.bg = bg
 
-	local text = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-	text:SetPoint("CENTER", f, "CENTER", 0, 0)
-	text:SetTextColor(1, 1, 1, 1)
-	text:SetShadowColor(0, 0, 0, 1)
-	text:SetShadowOffset(1, -1)
-	text:SetText("P")
-	f.text = text
+		local text = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+		text:SetPoint("CENTER", f, "CENTER", 0, 0)
+		text:SetTextColor(1, 1, 1, 1)
+		text:SetShadowColor(0, 0, 0, 1)
+		text:SetShadowOffset(1, -1)
+		f.text = text
 
-	f:Hide()
-	self._testPrivateAuraFrame = f
-	return f
+		f:Hide()
+		frames[i] = f
+	end
+	self._testPrivateAuraFrames = frames
+	return frames
 end
 
 function M:UpdateTestPrivateAura()
-	local f = self._testPrivateAuraFrame
-	if not f then return end
-	f:SetSize(L.PRIVATE_AURA_SIZE, L.PRIVATE_AURA_SIZE)
-	if f.bg then
-		f.bg:SetAllPoints()
+	if not L.PRIVATE_AURA_ENABLED then return end
+	local frames = self._testPrivateAuraFrames
+	if not frames then return end
+	local size = L.PRIVATE_AURA_SIZE
+	local step = size + L.PRIVATE_AURA_GAP
+	local dir = L.PRIVATE_AURA_GROW
+	local fontSize = math.max(12, math.floor(size * 0.6 + 0.5))
+
+	for i, f in ipairs(frames) do
+		f:SetSize(size, size)
+		f:ClearAllPoints()
+		local offsetX, offsetY = 0, 0
+		local offset = step * (i - 1)
+		if dir == "LEFT" then
+			offsetX = -offset
+		elseif dir == "RIGHT" then
+			offsetX = offset
+		elseif dir == "UP" then
+			offsetY = offset
+		else
+			offsetY = -offset
+		end
+		f:SetPoint("CENTER", privateAurasAnchor, "CENTER", offsetX, offsetY)
+
+		if f.bg then
+			f.bg:SetAllPoints()
+			f.bg:SetColorTexture(0, 0, 0, 1)
+			f.bg:SetAlpha(0.75)
+		end
+		if f.text then
+			f.text:SetFont(L.FONT_PATH or C.FONT_PATH, fontSize, C.FONT_FLAGS)
+			if i == 1 then
+				f.text:SetText("P")
+			else
+				f.text:SetText(tostring(i))
+			end
+		end
+
+		if i == 1 then
+			M.ensureFullBorder(f, 1, 1, 0, 0, 1)
+		else
+			M.ensureFullBorder(f, 1, 0, 0, 0, 1)
+		end
 	end
-	if f.text then
-		local fontSize = math.max(12, math.floor(L.PRIVATE_AURA_SIZE * 0.6 + 0.5))
-		f.text:SetFont(C.FONT_PATH, fontSize, C.FONT_FLAGS)
-		f.text:SetText("P")
-	end
-	M.ensureFullBorder(f, privateAuraBorderThickness(), 1, 0, 0, 1)
 end
 
 function M:ShowTestPrivateAura(show)
-	local f = ensureTestPrivateAuraFrame(self)
+	if not L.PRIVATE_AURA_ENABLED then
+		show = false
+	end
+	local frames = ensureTestPrivateAuraFrames(self)
 	if show then
-		f:Show()
+		for _, f in ipairs(frames) do
+			f:Show()
+		end
 		self:UpdateTestPrivateAura()
 	else
-		f:Hide()
+		for _, f in ipairs(frames) do
+			f:Hide()
+		end
 	end
 end
 
 function M:PlayPrivateAuraSound()
-	local sound = L.PRIVATE_AURA_SOUND_KIT
+	if not L.PRIVATE_AURA_ENABLED then return end
+	local sound = L.PRIVATE_AURA_SOUND
 	if not sound or sound == 0 then return end
 	local now = GetTime and GetTime() or 0
 	if self._privateAuraLastSoundAt and now > 0 and (now - self._privateAuraLastSoundAt) < 0.1 then
 		return
 	end
 	self._privateAuraLastSoundAt = now
+	local channel = L.PRIVATE_AURA_SOUND_CHANNEL or "Master"
 	if type(sound) == "number" then
-		if PlaySound then
-			pcall(PlaySound, sound, "Master")
+		local played = false
+		if PlaySoundFile then
+			local ok, willPlay = pcall(PlaySoundFile, sound, channel)
+			played = ok and willPlay or false
+		end
+		local playSound = PlaySound or (C_Sound and C_Sound.PlaySound)
+		if not played and playSound then
+			local ok, willPlay = pcall(playSound, sound, channel)
+			if not (ok and willPlay) then
+				pcall(playSound, sound)
+			end
 		end
 	elseif type(sound) == "string" then
 		if PlaySoundFile then
-			pcall(PlaySoundFile, sound, "Master")
+			pcall(PlaySoundFile, sound, channel)
 		end
 	end
+end
+
+function M:RegisterPrivateAuraSoundForSpell(spellId)
+	if not spellId or spellId == 0 then return false, false end
+	self._privateAuraKnownSpells = self._privateAuraKnownSpells or {}
+	self._privateAuraKnownSpells[spellId] = true
+
+	if not L.PRIVATE_AURA_ENABLED then
+		return false, false
+	end
+
+	if not (C_UnitAuras and C_UnitAuras.AddPrivateAuraAppliedSound) then
+		self._privateAuraSoundManualFallback = true
+		return false, false
+	end
+
+	local sound = L.PRIVATE_AURA_SOUND
+	if not sound or sound == 0 then return false, false end
+
+	self._privateAuraSoundRegistered = self._privateAuraSoundRegistered or {}
+	if self._privateAuraSoundRegistered[spellId] then return true, false end
+
+	local info = {
+		spellID = spellId,
+		unitToken = "player",
+		outputChannel = (L.PRIVATE_AURA_SOUND_CHANNEL or "Master"):lower(),
+	}
+	if type(sound) == "number" then
+		info.soundFileID = sound
+	elseif type(sound) == "string" then
+		info.soundFileName = sound
+	else
+		return false, false
+	end
+
+	local ok, id = pcall(C_UnitAuras.AddPrivateAuraAppliedSound, info)
+	if ok and id then
+		self._privateAuraSoundIDs = self._privateAuraSoundIDs or {}
+		self._privateAuraSoundIDs[#self._privateAuraSoundIDs + 1] = id
+		self._privateAuraSoundRegistered[spellId] = id
+		return true, true
+	end
+
+	self._privateAuraSoundManualFallback = true
+	return false, false
+end
+
+function M:ResetPrivateAuraSoundRegistrations()
+	if self._privateAuraSoundIDs and C_UnitAuras and C_UnitAuras.RemovePrivateAuraAppliedSound then
+		for _, id in ipairs(self._privateAuraSoundIDs) do
+			pcall(C_UnitAuras.RemovePrivateAuraAppliedSound, id)
+		end
+	end
+	self._privateAuraSoundIDs = {}
+	self._privateAuraSoundRegistered = {}
+	self._privateAuraSoundManualFallback = false
+
+	if not L.PRIVATE_AURA_ENABLED then
+		return
+	end
+	if self._privateAuraKnownSpells then
+		for spellId in pairs(self._privateAuraKnownSpells) do
+			self:RegisterPrivateAuraSoundForSpell(spellId)
+		end
+	end
+end
+
+function M:SetupPrivateAuraSoundWatcher()
+	if IsAddOnLoaded and IsAddOnLoaded("Blizzard_PrivateAurasUI") then
+		self._privateAuraSoundBlizzardLoaded = true
+	elseif self._privateAuraSoundBlizzardLoaded == nil then
+		self._privateAuraSoundBlizzardLoaded = false
+	end
+	if not L.PRIVATE_AURA_ENABLED then
+		return
+	end
+	if self._privateAuraSoundCallbackRegistered then return end
+	if C_UnitAurasPrivate and C_UnitAurasPrivate.AddPrivateAuraUpdateCallback then
+		local callback = self._privateAuraSoundCallback
+		if not callback then
+			local function onUpdate(updateInfo)
+				if not L.PRIVATE_AURA_ENABLED then return end
+				if not updateInfo then return end
+				if updateInfo.addedAuras and #updateInfo.addedAuras > 0 then
+					local played = false
+					local blizzLoaded = IsAddOnLoaded and IsAddOnLoaded("Blizzard_PrivateAurasUI")
+					for _, aura in ipairs(updateInfo.addedAuras) do
+						local spellId = aura.spellId or aura.spellID
+						if spellId then
+							local _, isNew = self:RegisterPrivateAuraSoundForSpell(spellId)
+							local needsManual = self._privateAuraSoundManualFallback
+							if not needsManual then
+								if not blizzLoaded then
+									needsManual = true
+								elseif self._privateAuraSoundBlizzardLoaded and isNew then
+									needsManual = true
+								end
+							end
+							if needsManual and not played then
+								self:PlayPrivateAuraSound()
+								played = true
+							end
+						end
+					end
+				end
+			end
+
+			callback = onUpdate
+			if C_FunctionContainers and C_FunctionContainers.CreateCallback then
+				callback = C_FunctionContainers.CreateCallback(onUpdate)
+			end
+			self._privateAuraSoundCallback = callback
+		end
+
+		local ok = pcall(C_UnitAurasPrivate.AddPrivateAuraUpdateCallback, "player", callback)
+		if ok then
+			self._privateAuraSoundCallbackRegistered = true
+			self._privateAuraSoundUsesCount = false
+			if C_UnitAurasPrivate.GetAllPrivateAuras then
+				local okList, list = pcall(C_UnitAurasPrivate.GetAllPrivateAuras, "player")
+				if okList and type(list) == "table" then
+					for _, aura in ipairs(list) do
+						local spellId = aura.spellId or aura.spellID
+						if spellId then
+							self:RegisterPrivateAuraSoundForSpell(spellId)
+						end
+					end
+				end
+			end
+			return
+		end
+	end
+
+	self._privateAuraSoundUsesCount = true
 end
 
 -- =========================
@@ -690,8 +932,8 @@ M.applyBarMirror = applyBarMirror
 -- =========================
 local function setBarFillFlat(barFrame, r, g, b, a)
 	if not barFrame or not barFrame.sb then return end
-	local flatTex = "Interface\\Buttons\\WHITE8X8"
-	barFrame.sb:SetStatusBarTexture(flatTex)
+	local texPath = L.BAR_TEX or C.BAR_TEX_DEFAULT or "Interface\\Buttons\\WHITE8X8"
+	barFrame.sb:SetStatusBarTexture(texPath)
 	local tex = barFrame.sb:GetStatusBarTexture()
 	barFrame.sbTex = tex
 	barFrame.sb:SetStatusBarColor(r, g, b, a or 1)
@@ -714,14 +956,14 @@ local barPool = pools.bar
 
 local function applyIconFont(fs)
 	if not fs then return end
-	fs:SetFont(C.FONT_PATH, L.ICON_FONT_SIZE, C.FONT_FLAGS)
+	fs:SetFont(L.ICON_FONT_PATH or L.FONT_PATH or C.FONT_PATH, L.ICON_FONT_SIZE, C.FONT_FLAGS)
 	fs:SetShadowColor(0, 0, 0, 0)
 	fs:SetShadowOffset(0, 0)
 end
 
 local function applyBarFont(fs)
 	if not fs then return end
-	fs:SetFont(C.FONT_PATH, L.BAR_FONT_SIZE, C.FONT_FLAGS)
+	fs:SetFont(L.FONT_PATH or C.FONT_PATH, L.BAR_FONT_SIZE, C.FONT_FLAGS)
 	fs:SetShadowColor(0, 0, 0, 0)
 	fs:SetShadowOffset(0, 0)
 end
@@ -834,7 +1076,7 @@ local function acquireBar()
 		sb:SetPoint("TOP", f, "TOP", 0, 0)
 		sb:SetPoint("BOTTOM", f, "BOTTOM", 0, 0)
 		sb:SetPoint("RIGHT", f, "RIGHT", 0, 0)
-		sb:SetStatusBarTexture(C.BAR_TEX_DEFAULT)
+		sb:SetStatusBarTexture(L.BAR_TEX or C.BAR_TEX_DEFAULT)
 		sb:SetMinMaxValues(0, L.THRESHOLD_TO_BAR)
 		sb:SetValue(L.THRESHOLD_TO_BAR)
 		f.sb = sb
