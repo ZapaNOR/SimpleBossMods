@@ -165,6 +165,14 @@ function M:StopTest()
 		self._testTicker:Cancel()
 		self._testTicker = nil
 	end
+	if self._testCombatTimer then
+		self._testCombatTimer = nil
+		if self.UpdateCombatTimerState then
+			self:UpdateCombatTimerState()
+		elseif self.StopCombatTimer then
+			self:StopCombatTimer()
+		end
+	end
 	if self.ClearTestTimelineEvents then
 		self:ClearTestTimelineEvents()
 	end
@@ -181,6 +189,10 @@ function M:StartTest()
 	self:StopTest()
 	if self.ShowTestPrivateAura then
 		self:ShowTestPrivateAura(true)
+	end
+	if L.COMBAT_TIMER_ENABLED and self.StartCombatTimer then
+		self._testCombatTimer = true
+		self:StartCombatTimer(true)
 	end
 
 	if self.StartEditModeTimelineTest then
@@ -268,6 +280,14 @@ function M:StartTest()
 			self._testTicker = nil
 			if M.ShowTestPrivateAura then
 				M:ShowTestPrivateAura(false)
+			end
+			if M._testCombatTimer then
+				M._testCombatTimer = nil
+				if M.UpdateCombatTimerState then
+					M:UpdateCombatTimerState()
+				elseif M.StopCombatTimer then
+					M:StopCombatTimer()
+				end
 			end
 		end
 	end)

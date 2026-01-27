@@ -8,8 +8,29 @@ local C = M.Const
 local L = M.Live
 local U = M.Util
 local frames = M.frames
+local wipe = _G.wipe or function(t)
+	for k in pairs(t) do
+		t[k] = nil
+	end
+end
+
+local layoutIconList = {}
+local layoutBarList = {}
 local function isSecretValue(value)
 	return type(issecretvalue) == "function" and issecretvalue(value)
+end
+
+local QUEUED_LABEL = "Queued"
+
+local function isTerminalEventState(state)
+	if not (Enum and Enum.EncounterTimelineEventState) then return false end
+	return state == Enum.EncounterTimelineEventState.Finished
+		or state == Enum.EncounterTimelineEventState.Canceled
+end
+
+local function isQueuedTrack(track)
+	if not (Enum and Enum.EncounterTimelineTrack) then return false end
+	return track == Enum.EncounterTimelineTrack.Queued
 end
 
 -- =========================
@@ -30,7 +51,8 @@ local function isTestRec(rec)
 end
 
 function M:layoutIcons()
-	local list = {}
+	local list = layoutIconList
+	wipe(list)
 	for _, rec in pairs(self.events) do
 		if rec.iconFrame then list[#list + 1] = rec end
 	end
@@ -78,7 +100,8 @@ function M:layoutIcons()
 end
 
 function M:layoutBars()
-	local list = {}
+	local list = layoutBarList
+	wipe(list)
 	for _, rec in pairs(self.events) do
 		if rec.barFrame then list[#list + 1] = rec end
 	end
@@ -137,6 +160,7 @@ function M:layoutBars()
 end
 
 function M:LayoutAll()
+	self._layoutDirty = false
 	frames.iconsParent:ClearAllPoints()
 	if L.MIRROR then
 		if L.BARS_BELOW then
@@ -188,6 +212,7 @@ function M:removeEvent(eventID)
 	M.releaseIcon(rec.iconFrame)
 	M.releaseBar(rec.barFrame)
 	self.events[eventID] = nil
+	self._layoutDirty = true
 end
 
 function M:clearAll()
@@ -348,10 +373,24 @@ function M:ensureBar(rec)
 		end
 
 		if type(rem) ~= "number" then rem = 999 end
+		local isQueued = rrec.isQueued and not rrec.isManual
+		if isQueued then
+			self.sb:SetMinMaxValues(0, L.THRESHOLD_TO_BAR)
+			self.sb:SetValue(0)
+			if self.rt._sbmQueued ~= true then
+				self.rt:SetText(QUEUED_LABEL)
+				self.rt._sbmQueued = true
+			end
+			return
+		end
+
 		if rem <= 0 then
 			M:removeEvent(rrec.id)
 			M:LayoutAll()
 			return
+		end
+		if self.rt._sbmQueued then
+			self.rt._sbmQueued = nil
 		end
 
 		if rrec.isManual then
@@ -378,15 +417,20 @@ function M:updateRecord(eventID, eventInfo, remaining)
 	if type(eventID) ~= "number" then return end
 
 	local rec = self.events[eventID]
+	local isNew = false
 	if not rec then
 		rec = { id = eventID }
 		self.events[eventID] = rec
+		isNew = true
 	end
 
 	rec.eventInfo = eventInfo or rec.eventInfo
 	rec.remaining = remaining or rec.remaining
 
 	local isTest = isTestRec(rec)
+	if rec.isManual or isTest then
+		rec.isQueued = false
+	end
 	if not rec.isManual and not isTest and rec.eventInfo and type(rec.eventInfo.icons) == "number" then
 		if isSecretValue(rec._indicatorMask) then
 			rec._indicatorMask = nil
@@ -411,26 +455,44 @@ function M:updateRecord(eventID, eventInfo, remaining)
 		updateRecTiming(rec, rec.remaining)
 	end
 
-	if rec.forceBar then
-		self:ensureBar(rec)
-	elseif type(rec.remaining) == "number" and rec.remaining <= L.THRESHOLD_TO_BAR then
+	local wantBar = rec.forceBar
+	if not wantBar and type(rec.remaining) == "number" and rec.remaining <= L.THRESHOLD_TO_BAR then
+		wantBar = true
+	end
+	local hadBar = rec.barFrame ~= nil
+	local hadIcon = rec.iconFrame ~= nil
+	if wantBar then
 		self:ensureBar(rec)
 	else
 		self:ensureIcon(rec)
+	end
+	if isNew or hadBar ~= (rec.barFrame ~= nil) or hadIcon ~= (rec.iconFrame ~= nil) then
+		self._layoutDirty = true
 	end
 
 	if rec.iconFrame then
 		local f = rec.iconFrame
 		refreshIconTexture(rec)
 		local rem = rec.remaining
-		if type(rem) == "number" and rem > 0 then
-			f.timeText:SetText(U.formatTimeIcon(rem))
-			if rec.startTime and rec.duration and rec.duration > 0 then
-				f.cd:SetCooldown(rec.startTime, rec.duration)
+		if rec.isQueued and not rec.isManual then
+			if f.timeText._sbmQueued ~= true then
+				f.timeText:SetText(QUEUED_LABEL)
+				f.timeText._sbmQueued = true
 			end
-		else
-			f.timeText:SetText("")
 			f.cd:Clear()
+		else
+			if f.timeText._sbmQueued then
+				f.timeText._sbmQueued = nil
+			end
+			if type(rem) == "number" and rem > 0 then
+				f.timeText:SetText(U.formatTimeIcon(rem))
+				if rec.startTime and rec.duration and rec.duration > 0 then
+					f.cd:SetCooldown(rec.startTime, rec.duration)
+				end
+			else
+				f.timeText:SetText("")
+				f.cd:Clear()
+			end
 		end
 
 		if rec.isManual then
@@ -488,31 +550,54 @@ function M:Tick()
 	end
 	if type(list) ~= "table" or #list == 0 then
 		if next(self.events) ~= nil then
-			local removed = false
 			for id, rec in pairs(self.events) do
 				if not (rec and rec.isManual) then
 					self:removeEvent(id)
-					removed = true
 				end
 			end
-			if removed then
-				self:LayoutAll()
-			end
+		end
+		if self._layoutDirty then
+			self:LayoutAll()
 		end
 		return
 	end
 
-	local seen = {}
+	local seen = self._seenEvents
+	if not seen then
+		seen = {}
+		self._seenEvents = seen
+	else
+		wipe(seen)
+	end
 	for _, eventID in ipairs(list) do
 		seen[eventID] = true
 		local rec = self.events[eventID]
 		if not rec then
 			rec = { id = eventID }
 			self.events[eventID] = rec
+			self._layoutDirty = true
 		end
 
 		local info = C_EncounterTimeline.GetEventInfo and C_EncounterTimeline.GetEventInfo(eventID) or nil
 		rec.isTest = self._testTimelineEventIDSet and self._testTimelineEventIDSet[eventID] or false
+		do
+			local track, state
+			if C_EncounterTimeline.GetEventTrack then
+				local ok, tr = pcall(C_EncounterTimeline.GetEventTrack, eventID)
+				if ok then
+					track = tr
+				end
+			end
+			if C_EncounterTimeline.GetEventState then
+				local ok, st = pcall(C_EncounterTimeline.GetEventState, eventID)
+				if ok then
+					state = st
+				end
+			end
+			rec._timelineTrack = track
+			rec._timelineState = state
+			rec.isQueued = isQueuedTrack(track) and not isTerminalEventState(state)
+		end
 		local rem = C_EncounterTimeline.GetEventTimeRemaining and C_EncounterTimeline.GetEventTimeRemaining(eventID) or nil
 		self:updateRecord(eventID, info, rem)
 	end
@@ -524,7 +609,9 @@ function M:Tick()
 		end
 	end
 
-	self:LayoutAll()
+	if self._layoutDirty then
+		self:LayoutAll()
+	end
 end
 
 C_Timer.NewTicker(C.TICK_INTERVAL, function() M:Tick() end)

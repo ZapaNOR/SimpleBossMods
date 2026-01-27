@@ -114,8 +114,26 @@ M.Defaults = M.Defaults or {
 			growDirection = "RIGHT",
 			x = 0,
 			y = 0,
+			anchorFrom = "CENTER",
+			anchorTo = "CENTER",
+			anchorParent = "NONE",
+			customParent = "",
 			sound = "SBM: Raid Warning",
 			soundChannel = "Master",
+		},
+		combatTimer = {
+			enabled = false,
+			x = -80,
+			y = 0,
+			anchorFrom = "LEFT",
+			anchorTo = "RIGHT",
+			anchorParent = "SimpleBossMods_Anchor",
+			customParent = "",
+			font = "SBM Expressway",
+			fontSize = 18,
+			color = { r = 1, g = 1, b = 1, a = 1 },
+			borderColor = { r = 0, g = 0, b = 0, a = 1 },
+			bgColor = { r = 0, g = 0, b = 0, a = 0.8 },
 		},
 	},
 }
@@ -212,6 +230,10 @@ function M:EnsureDefaults()
 		growDirection = M.Defaults.cfg.privateAuras.growDirection,
 		x = M.Defaults.cfg.privateAuras.x,
 		y = M.Defaults.cfg.privateAuras.y,
+		anchorFrom = M.Defaults.cfg.privateAuras.anchorFrom,
+		anchorTo = M.Defaults.cfg.privateAuras.anchorTo,
+		anchorParent = M.Defaults.cfg.privateAuras.anchorParent,
+		customParent = M.Defaults.cfg.privateAuras.customParent,
 		sound = M.Defaults.cfg.privateAuras.sound,
 	}
 	if cfg.privateAuras.size == nil then
@@ -228,6 +250,18 @@ function M:EnsureDefaults()
 	end
 	if cfg.privateAuras.y == nil then
 		cfg.privateAuras.y = M.Defaults.cfg.privateAuras.y
+	end
+	if cfg.privateAuras.anchorFrom == nil then
+		cfg.privateAuras.anchorFrom = M.Defaults.cfg.privateAuras.anchorFrom
+	end
+	if cfg.privateAuras.anchorTo == nil then
+		cfg.privateAuras.anchorTo = M.Defaults.cfg.privateAuras.anchorTo
+	end
+	if cfg.privateAuras.anchorParent == nil then
+		cfg.privateAuras.anchorParent = M.Defaults.cfg.privateAuras.anchorParent
+	end
+	if cfg.privateAuras.customParent == nil then
+		cfg.privateAuras.customParent = M.Defaults.cfg.privateAuras.customParent
 	end
 	if cfg.privateAuras.sound == nil then
 		if type(cfg.privateAuras.soundKitID) == "number" then
@@ -258,6 +292,62 @@ function M:EnsureDefaults()
 		end
 		cfg.privateAuras.growDirection = dir
 	end
+
+	cfg.combatTimer = cfg.combatTimer or {
+		enabled = M.Defaults.cfg.combatTimer.enabled,
+		x = M.Defaults.cfg.combatTimer.x,
+		y = M.Defaults.cfg.combatTimer.y,
+		font = M.Defaults.cfg.combatTimer.font,
+		fontSize = M.Defaults.cfg.combatTimer.fontSize,
+	}
+	if cfg.combatTimer.enabled == nil then
+		cfg.combatTimer.enabled = M.Defaults.cfg.combatTimer.enabled
+	end
+	if cfg.combatTimer.anchorFrom == nil then
+		cfg.combatTimer.anchorFrom = M.Defaults.cfg.combatTimer.anchorFrom
+	end
+	if cfg.combatTimer.anchorTo == nil then
+		cfg.combatTimer.anchorTo = M.Defaults.cfg.combatTimer.anchorTo
+	end
+	if cfg.combatTimer.anchorParent == nil then
+		cfg.combatTimer.anchorParent = M.Defaults.cfg.combatTimer.anchorParent
+	end
+	if cfg.combatTimer.customParent == nil then
+		cfg.combatTimer.customParent = M.Defaults.cfg.combatTimer.customParent
+	end
+	if cfg.combatTimer.font == nil then
+		cfg.combatTimer.font = cfg.general.font or M.Defaults.cfg.combatTimer.font
+	end
+	if cfg.combatTimer.fontSize == nil then
+		cfg.combatTimer.fontSize = M.Defaults.cfg.combatTimer.fontSize
+	end
+	if cfg.combatTimer.x == nil then
+		cfg.combatTimer.x = M.Defaults.cfg.combatTimer.x
+	end
+	if cfg.combatTimer.y == nil then
+		cfg.combatTimer.y = M.Defaults.cfg.combatTimer.y
+	end
+	cfg.combatTimer.color = cfg.combatTimer.color or {
+		r = M.Defaults.cfg.combatTimer.color.r,
+		g = M.Defaults.cfg.combatTimer.color.g,
+		b = M.Defaults.cfg.combatTimer.color.b,
+		a = M.Defaults.cfg.combatTimer.color.a,
+	}
+	cfg.combatTimer.borderColor = cfg.combatTimer.borderColor or {
+		r = M.Defaults.cfg.combatTimer.borderColor.r,
+		g = M.Defaults.cfg.combatTimer.borderColor.g,
+		b = M.Defaults.cfg.combatTimer.borderColor.b,
+		a = M.Defaults.cfg.combatTimer.borderColor.a,
+	}
+	cfg.combatTimer.bgColor = cfg.combatTimer.bgColor or {
+		r = M.Defaults.cfg.combatTimer.bgColor.r,
+		g = M.Defaults.cfg.combatTimer.bgColor.g,
+		b = M.Defaults.cfg.combatTimer.bgColor.b,
+		a = M.Defaults.cfg.combatTimer.bgColor.a,
+	}
+	repairColor(cfg.combatTimer.color, M.Defaults.cfg.combatTimer.color.r, M.Defaults.cfg.combatTimer.color.g, M.Defaults.cfg.combatTimer.color.b, M.Defaults.cfg.combatTimer.color.a)
+	repairColor(cfg.combatTimer.borderColor, M.Defaults.cfg.combatTimer.borderColor.r, M.Defaults.cfg.combatTimer.borderColor.g, M.Defaults.cfg.combatTimer.borderColor.b, M.Defaults.cfg.combatTimer.borderColor.a)
+	repairColor(cfg.combatTimer.bgColor, M.Defaults.cfg.combatTimer.bgColor.r, M.Defaults.cfg.combatTimer.bgColor.g, M.Defaults.cfg.combatTimer.bgColor.b, M.Defaults.cfg.combatTimer.bgColor.a)
 end
 
 M.Live = M.Live or {}
@@ -278,12 +368,24 @@ function U.round(v)
 	return math.ceil(v - 0.5)
 end
 
+local function normalizeAnchorPoint(point)
+	if type(point) ~= "string" then return "CENTER" end
+	point = point:upper()
+	if point == "TOPLEFT" or point == "TOP" or point == "TOPRIGHT"
+		or point == "LEFT" or point == "CENTER" or point == "RIGHT"
+		or point == "BOTTOMLEFT" or point == "BOTTOM" or point == "BOTTOMRIGHT" then
+		return point
+	end
+	return "CENTER"
+end
+
 function M.SyncLiveConfig()
 	local gc = SimpleBossModsDB.cfg.general
 	local ic = SimpleBossModsDB.cfg.icons
 	local bc = SimpleBossModsDB.cfg.bars
 	local inc = SimpleBossModsDB.cfg.indicators
 	local pc = SimpleBossModsDB.cfg.privateAuras or M.Defaults.cfg.privateAuras
+	local ct = SimpleBossModsDB.cfg.combatTimer or M.Defaults.cfg.combatTimer
 	L.PRIVATE_AURA_ENABLED = pc.enabled ~= false
 
 	L.GAP = tonumber(gc.gap) or 6
@@ -345,6 +447,26 @@ function M.SyncLiveConfig()
 		end
 		L.PRIVATE_AURA_GROW = dir
 	end
+	L.PRIVATE_AURA_ANCHOR_FROM = normalizeAnchorPoint(pc.anchorFrom)
+	L.PRIVATE_AURA_ANCHOR_TO = normalizeAnchorPoint(pc.anchorTo)
+	L.PRIVATE_AURA_ANCHOR_PARENT = (type(pc.anchorParent) == "string" and pc.anchorParent ~= "") and pc.anchorParent or "NONE"
+	do
+		local customParent = nil
+		if type(pc.customParent) == "string" then
+			customParent = pc.customParent:gsub("^%s+", ""):gsub("%s+$", "")
+			if customParent == "" then
+				customParent = nil
+			end
+		end
+		L.PRIVATE_AURA_ANCHOR_CUSTOM_PARENT = customParent
+		if customParent then
+			L.PRIVATE_AURA_PARENT_NAME = customParent
+		elseif L.PRIVATE_AURA_ANCHOR_PARENT ~= "NONE" then
+			L.PRIVATE_AURA_PARENT_NAME = L.PRIVATE_AURA_ANCHOR_PARENT
+		else
+			L.PRIVATE_AURA_PARENT_NAME = nil
+		end
+	end
 	L.PRIVATE_AURA_X = tonumber(pc.x) or 0
 	L.PRIVATE_AURA_Y = tonumber(pc.y) or 0
 	local soundKey = pc.sound or M.Defaults.cfg.privateAuras.sound
@@ -368,6 +490,54 @@ function M.SyncLiveConfig()
 	end
 	L.PRIVATE_AURA_SOUND = soundValue
 	L.PRIVATE_AURA_SOUND_CHANNEL = M.NormalizeSoundChannel(pc.soundChannel) or M.Defaults.cfg.privateAuras.soundChannel
+
+	L.COMBAT_TIMER_ENABLED = ct.enabled and true or false
+	L.COMBAT_TIMER_X = tonumber(ct.x) or 0
+	L.COMBAT_TIMER_Y = tonumber(ct.y) or 0
+
+	L.COMBAT_TIMER_ANCHOR_FROM = normalizeAnchorPoint(ct.anchorFrom)
+	L.COMBAT_TIMER_ANCHOR_TO = normalizeAnchorPoint(ct.anchorTo)
+	L.COMBAT_TIMER_ANCHOR_PARENT = (type(ct.anchorParent) == "string" and ct.anchorParent ~= "") and ct.anchorParent or "NONE"
+	local customParent = nil
+	if type(ct.customParent) == "string" then
+		customParent = ct.customParent:gsub("^%s+", ""):gsub("%s+$", "")
+		if customParent == "" then
+			customParent = nil
+		end
+	end
+	L.COMBAT_TIMER_ANCHOR_CUSTOM_PARENT = customParent
+	if customParent then
+		L.COMBAT_TIMER_PARENT_NAME = customParent
+	elseif L.COMBAT_TIMER_ANCHOR_PARENT ~= "NONE" then
+		L.COMBAT_TIMER_PARENT_NAME = L.COMBAT_TIMER_ANCHOR_PARENT
+	else
+		L.COMBAT_TIMER_PARENT_NAME = nil
+	end
+
+	L.COMBAT_TIMER_FONT_KEY = ct.font or L.FONT_KEY or M.Defaults.cfg.combatTimer.font
+	L.COMBAT_TIMER_FONT_PATH = C.FONT_PATH
+	if LSM then
+		L.COMBAT_TIMER_FONT_PATH = LSM:Fetch("font", L.COMBAT_TIMER_FONT_KEY) or C.FONT_PATH
+	end
+	L.COMBAT_TIMER_FONT_SIZE = U.clamp(U.round(tonumber(ct.fontSize) or M.Defaults.cfg.combatTimer.fontSize), 8, 72)
+
+	local ctColor = ct.color or {}
+	L.COMBAT_TIMER_COLOR_R = U.clamp(tonumber(ctColor.r) or M.Defaults.cfg.combatTimer.color.r, 0, 1)
+	L.COMBAT_TIMER_COLOR_G = U.clamp(tonumber(ctColor.g) or M.Defaults.cfg.combatTimer.color.g, 0, 1)
+	L.COMBAT_TIMER_COLOR_B = U.clamp(tonumber(ctColor.b) or M.Defaults.cfg.combatTimer.color.b, 0, 1)
+	L.COMBAT_TIMER_COLOR_A = U.clamp(tonumber(ctColor.a) or M.Defaults.cfg.combatTimer.color.a, 0, 1)
+
+	local ctBorder = ct.borderColor or {}
+	L.COMBAT_TIMER_BORDER_R = U.clamp(tonumber(ctBorder.r) or M.Defaults.cfg.combatTimer.borderColor.r, 0, 1)
+	L.COMBAT_TIMER_BORDER_G = U.clamp(tonumber(ctBorder.g) or M.Defaults.cfg.combatTimer.borderColor.g, 0, 1)
+	L.COMBAT_TIMER_BORDER_B = U.clamp(tonumber(ctBorder.b) or M.Defaults.cfg.combatTimer.borderColor.b, 0, 1)
+	L.COMBAT_TIMER_BORDER_A = U.clamp(tonumber(ctBorder.a) or M.Defaults.cfg.combatTimer.borderColor.a, 0, 1)
+
+	local ctBg = ct.bgColor or {}
+	L.COMBAT_TIMER_BG_R = U.clamp(tonumber(ctBg.r) or M.Defaults.cfg.combatTimer.bgColor.r, 0, 1)
+	L.COMBAT_TIMER_BG_G = U.clamp(tonumber(ctBg.g) or M.Defaults.cfg.combatTimer.bgColor.g, 0, 1)
+	L.COMBAT_TIMER_BG_B = U.clamp(tonumber(ctBg.b) or M.Defaults.cfg.combatTimer.bgColor.b, 0, 1)
+	L.COMBAT_TIMER_BG_A = U.clamp(tonumber(ctBg.a) or M.Defaults.cfg.combatTimer.bgColor.a, 0, 1)
 end
 
 local function isSecretValue(value)

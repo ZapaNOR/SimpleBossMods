@@ -460,6 +460,12 @@ ef:SetScript("OnEvent", function(_, event, ...)
 			local pc = SimpleBossModsDB.cfg.privateAuras
 			M:ApplyPrivateAuraConfig(pc.size, pc.gap, pc.growDirection, pc.x, pc.y, pc.sound)
 		end
+		if M.UpdateCombatTimerAppearance then
+			M:UpdateCombatTimerAppearance()
+		end
+		if M.UpdateCombatTimerState then
+			M:UpdateCombatTimerState()
+		end
 
 		M:CreateSettingsPanel()
 		M:Tick()
@@ -500,6 +506,14 @@ ef:SetScript("OnEvent", function(_, event, ...)
 		or event == "ENCOUNTER_TIMELINE_EVENT_REMOVED"
 		or event == "ENCOUNTER_TIMELINE_EVENT_STATE_CHANGED" then
 		C_Timer.After(0, function() M:Tick() end)
+	elseif event == "PLAYER_REGEN_DISABLED" then
+		if M.StartCombatTimer then
+			M:StartCombatTimer(true)
+		end
+	elseif event == "PLAYER_REGEN_ENABLED" then
+		if M.StopCombatTimer then
+			M:StopCombatTimer()
+		end
 	elseif event == "START_PLAYER_COUNTDOWN" then
 		local _, timeSeconds = ...
 		local secs = parseTimerValue(timeSeconds)
@@ -611,6 +625,8 @@ ef:RegisterEvent("ADDON_LOADED")
 ef:RegisterEvent("ENCOUNTER_TIMELINE_EVENT_ADDED")
 ef:RegisterEvent("ENCOUNTER_TIMELINE_EVENT_REMOVED")
 ef:RegisterEvent("ENCOUNTER_TIMELINE_EVENT_STATE_CHANGED")
+ef:RegisterEvent("PLAYER_REGEN_DISABLED")
+ef:RegisterEvent("PLAYER_REGEN_ENABLED")
 ef:RegisterEvent("START_PLAYER_COUNTDOWN")
 ef:RegisterEvent("CANCEL_PLAYER_COUNTDOWN")
 ef:RegisterEvent("CHAT_MSG_ADDON")
@@ -655,4 +671,4 @@ SlashCmdList["SIMPLEBOSSMODSBREAK"] = function(msg)
 	handleManualTimer("break", msg)
 end
 
-print("|cFF00FF00Simple|rBossMods: '|cFF00FF00/sbm|r' for in-game configuration.")
+print("|cFF9CDF95Simple|rBossMods: '|cFF9CDF95/sbm|r' for in-game configuration.")

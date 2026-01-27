@@ -11,6 +11,94 @@ local AG = LibStub and LibStub("AceGUI-3.0", true)
 local LSM = M.LSM or (LibStub and LibStub("LibSharedMedia-3.0", true))
 local isGUIOpen = false
 
+local ANCHOR_POINT_OPTIONS = {
+	{ label = "Top Left", value = "TOPLEFT" },
+	{ label = "Top", value = "TOP" },
+	{ label = "Top Right", value = "TOPRIGHT" },
+	{ label = "Left", value = "LEFT" },
+	{ label = "Center", value = "CENTER" },
+	{ label = "Right", value = "RIGHT" },
+	{ label = "Bottom Left", value = "BOTTOMLEFT" },
+	{ label = "Bottom", value = "BOTTOM" },
+	{ label = "Bottom Right", value = "BOTTOMRIGHT" },
+}
+
+local ANCHOR_PARENT_OPTIONS = {
+	{ label = "UIParent", value = "NONE" },
+	{ label = "SBM: Main Anchor", value = "SimpleBossMods_Anchor" },
+	{ label = "SBM: Icons", value = "SimpleBossMods_Icons" },
+	{ label = "SBM: Bars", value = "SimpleBossMods_Bars" },
+	{ label = "Blizzard: Player Frame", value = "PlayerFrame" },
+	{ label = "Blizzard: Target Frame", value = "TargetFrame" },
+	{ label = "Blizzard: Focus Frame", value = "FocusFrame" },
+	{ label = "Blizzard: Minimap", value = "MinimapCluster" },
+}
+
+local ANCHOR_POINT_MAP = {
+	TOPLEFT = "Top Left",
+	TOP = "Top",
+	TOPRIGHT = "Top Right",
+	LEFT = "Left",
+	CENTER = "Center",
+	RIGHT = "Right",
+	BOTTOMLEFT = "Bottom Left",
+	BOTTOM = "Bottom",
+	BOTTOMRIGHT = "Bottom Right",
+}
+
+local function isAddonLoaded(name)
+	if C_AddOns and C_AddOns.IsAddOnLoaded then
+		return C_AddOns.IsAddOnLoaded(name)
+	end
+	if IsAddOnLoaded then
+		return IsAddOnLoaded(name)
+	end
+	return false
+end
+
+local function buildAnchorParentLists(currentValue)
+	local list = {}
+	local map = {}
+	local function add(label, value)
+		if map[value] then return end
+		list[#list + 1] = { label = label, value = value }
+		map[value] = label
+	end
+
+	for _, opt in ipairs(ANCHOR_PARENT_OPTIONS) do
+		add(opt.label, opt.value)
+	end
+
+	if isAddonLoaded("BetterCooldownManager") then
+		add("BCDM: Essential Cooldown Viewer", "EssentialCooldownViewer")
+		add("BCDM: Utility Cooldown Viewer", "UtilityCooldownViewer")
+		add("BCDM: Power Bar", "BCDM_PowerBar")
+		add("BCDM: Secondary Power Bar", "BCDM_SecondaryPowerBar")
+		add("BCDM: Cast Bar", "BCDM_CastBar")
+		add("BCDM: Trinket Bar", "BCDM_TrinketBar")
+		add("BCDM: Custom Cooldown Viewer", "BCDM_CustomCooldownViewer")
+		add("BCDM: Custom Item Bar", "BCDM_CustomItemBar")
+		add("BCDM: Custom Item Spell Bar", "BCDM_CustomItemSpellBar")
+		add("BCDM: Additional Custom Viewer", "BCDM_AdditionalCustomCooldownViewer")
+	end
+
+	if isAddonLoaded("UnhaltedUnitFrames") then
+		add("UUF: Player Frame", "UUF_Player")
+		add("UUF: Target Frame", "UUF_Target")
+		add("UUF: Focus Frame", "UUF_Focus")
+		add("UUF: Pet Frame", "UUF_Pet")
+		add("UUF: Target Target", "UUF_TargetTarget")
+		add("UUF: Focus Target", "UUF_FocusTarget")
+		add("UUF: CDM Anchor", "UUF_CDMAnchor")
+	end
+
+	if currentValue and currentValue ~= "" and not map[currentValue] then
+		add(currentValue, currentValue)
+	end
+
+	return list, map
+end
+
 local function refreshBarFrame(f, isPool)
 	if not f then return end
 	f:SetSize(L.BAR_WIDTH, L.BAR_HEIGHT)
@@ -300,8 +388,8 @@ function M:ApplyPrivateAuraConfig(size, gap, growDirection, x, y, soundKey)
 	if soundChanged and M.ResetPrivateAuraSoundRegistrations then
 		M:ResetPrivateAuraSoundRegistrations()
 	end
-	if M.SetPrivateAuraPosition then
-		M:SetPrivateAuraPosition(pc.x, pc.y)
+	if M.UpdatePrivateAuraAnchorPosition then
+		M:UpdatePrivateAuraAnchorPosition()
 	end
 	if M.UpdatePrivateAuraAnchor then
 		M:UpdatePrivateAuraAnchor()
@@ -340,6 +428,189 @@ function M:ApplyPrivateAuraSoundChannel(channel)
 	M.SyncLiveConfig()
 	if M.ResetPrivateAuraSoundRegistrations then
 		M:ResetPrivateAuraSoundRegistrations()
+	end
+end
+
+function M:ApplyPrivateAuraPosition(x, y)
+	local pc = SimpleBossModsDB.cfg.privateAuras
+	pc.x = tonumber(x) or pc.x or 0
+	pc.y = tonumber(y) or pc.y or 0
+	M.SyncLiveConfig()
+	if M.UpdatePrivateAuraAnchorPosition then
+		M:UpdatePrivateAuraAnchorPosition()
+	end
+end
+
+function M:ApplyPrivateAuraAnchorFrom(point)
+	local pc = SimpleBossModsDB.cfg.privateAuras
+	if type(point) == "string" and point ~= "" then
+		pc.anchorFrom = point
+	end
+	M.SyncLiveConfig()
+	if M.UpdatePrivateAuraAnchorPosition then
+		M:UpdatePrivateAuraAnchorPosition()
+	end
+end
+
+function M:ApplyPrivateAuraAnchorTo(point)
+	local pc = SimpleBossModsDB.cfg.privateAuras
+	if type(point) == "string" and point ~= "" then
+		pc.anchorTo = point
+	end
+	M.SyncLiveConfig()
+	if M.UpdatePrivateAuraAnchorPosition then
+		M:UpdatePrivateAuraAnchorPosition()
+	end
+end
+
+function M:ApplyPrivateAuraAnchorParent(parentName)
+	local pc = SimpleBossModsDB.cfg.privateAuras
+	if type(parentName) == "string" and parentName ~= "" then
+		pc.anchorParent = parentName
+	end
+	pc.customParent = ""
+	M.SyncLiveConfig()
+	if M.UpdatePrivateAuraAnchorPosition then
+		M:UpdatePrivateAuraAnchorPosition()
+	end
+end
+
+function M:ApplyPrivateAuraCustomParent(name)
+	local pc = SimpleBossModsDB.cfg.privateAuras
+	if type(name) ~= "string" then
+		name = ""
+	end
+	name = name:gsub("^%s+", ""):gsub("%s+$", "")
+	pc.customParent = name
+	M.SyncLiveConfig()
+	if M.UpdatePrivateAuraAnchorPosition then
+		M:UpdatePrivateAuraAnchorPosition()
+	end
+end
+
+-- =========================
+-- Combat Timer config
+-- =========================
+function M:ApplyCombatTimerEnabled(enabled)
+	local ct = SimpleBossModsDB.cfg.combatTimer
+	ct.enabled = enabled and true or false
+	M.SyncLiveConfig()
+	if M.UpdateCombatTimerState then
+		M:UpdateCombatTimerState()
+	end
+end
+
+function M:ApplyCombatTimerFont(fontKey)
+	local ct = SimpleBossModsDB.cfg.combatTimer
+	ct.font = fontKey or M.Defaults.cfg.combatTimer.font
+	M.SyncLiveConfig()
+	if M.UpdateCombatTimerAppearance then
+		M:UpdateCombatTimerAppearance()
+	end
+end
+
+function M:ApplyCombatTimerFontSize(size)
+	local ct = SimpleBossModsDB.cfg.combatTimer
+	ct.fontSize = U.clamp(U.round(size), 8, 72)
+	M.SyncLiveConfig()
+	if M.UpdateCombatTimerAppearance then
+		M:UpdateCombatTimerAppearance()
+	end
+end
+
+function M:ApplyCombatTimerPosition(x, y)
+	local ct = SimpleBossModsDB.cfg.combatTimer
+	ct.x = tonumber(x) or ct.x or 0
+	ct.y = tonumber(y) or ct.y or 0
+	M.SyncLiveConfig()
+	if M.UpdateCombatTimerAppearance then
+		M:UpdateCombatTimerAppearance()
+	end
+end
+
+function M:ApplyCombatTimerAnchorFrom(point)
+	local ct = SimpleBossModsDB.cfg.combatTimer
+	if type(point) == "string" and point ~= "" then
+		ct.anchorFrom = point
+	end
+	M.SyncLiveConfig()
+	if M.UpdateCombatTimerAppearance then
+		M:UpdateCombatTimerAppearance()
+	end
+end
+
+function M:ApplyCombatTimerAnchorTo(point)
+	local ct = SimpleBossModsDB.cfg.combatTimer
+	if type(point) == "string" and point ~= "" then
+		ct.anchorTo = point
+	end
+	M.SyncLiveConfig()
+	if M.UpdateCombatTimerAppearance then
+		M:UpdateCombatTimerAppearance()
+	end
+end
+
+function M:ApplyCombatTimerAnchorParent(parentName)
+	local ct = SimpleBossModsDB.cfg.combatTimer
+	if type(parentName) == "string" and parentName ~= "" then
+		ct.anchorParent = parentName
+	end
+	ct.customParent = ""
+	M.SyncLiveConfig()
+	if M.UpdateCombatTimerAppearance then
+		M:UpdateCombatTimerAppearance()
+	end
+end
+
+function M:ApplyCombatTimerCustomParent(name)
+	local ct = SimpleBossModsDB.cfg.combatTimer
+	if type(name) ~= "string" then
+		name = ""
+	end
+	name = name:gsub("^%s+", ""):gsub("%s+$", "")
+	ct.customParent = name
+	M.SyncLiveConfig()
+	if M.UpdateCombatTimerAppearance then
+		M:UpdateCombatTimerAppearance()
+	end
+end
+
+function M:ApplyCombatTimerColor(r, g, b, a)
+	local ct = SimpleBossModsDB.cfg.combatTimer
+	ct.color = ct.color or {}
+	ct.color.r = U.clamp(tonumber(r) or L.COMBAT_TIMER_COLOR_R or 1, 0, 1)
+	ct.color.g = U.clamp(tonumber(g) or L.COMBAT_TIMER_COLOR_G or 1, 0, 1)
+	ct.color.b = U.clamp(tonumber(b) or L.COMBAT_TIMER_COLOR_B or 1, 0, 1)
+	ct.color.a = U.clamp(tonumber(a) or L.COMBAT_TIMER_COLOR_A or 1, 0, 1)
+	M.SyncLiveConfig()
+	if M.UpdateCombatTimerAppearance then
+		M:UpdateCombatTimerAppearance()
+	end
+end
+
+function M:ApplyCombatTimerBorderColor(r, g, b, a)
+	local ct = SimpleBossModsDB.cfg.combatTimer
+	ct.borderColor = ct.borderColor or {}
+	ct.borderColor.r = U.clamp(tonumber(r) or L.COMBAT_TIMER_BORDER_R or 0, 0, 1)
+	ct.borderColor.g = U.clamp(tonumber(g) or L.COMBAT_TIMER_BORDER_G or 0, 0, 1)
+	ct.borderColor.b = U.clamp(tonumber(b) or L.COMBAT_TIMER_BORDER_B or 0, 0, 1)
+	ct.borderColor.a = U.clamp(tonumber(a) or L.COMBAT_TIMER_BORDER_A or 1, 0, 1)
+	M.SyncLiveConfig()
+	if M.UpdateCombatTimerAppearance then
+		M:UpdateCombatTimerAppearance()
+	end
+end
+
+function M:ApplyCombatTimerBgColor(r, g, b, a)
+	local ct = SimpleBossModsDB.cfg.combatTimer
+	ct.bgColor = ct.bgColor or {}
+	ct.bgColor.r = U.clamp(tonumber(r) or L.COMBAT_TIMER_BG_R or 0, 0, 1)
+	ct.bgColor.g = U.clamp(tonumber(g) or L.COMBAT_TIMER_BG_G or 0, 0, 1)
+	ct.bgColor.b = U.clamp(tonumber(b) or L.COMBAT_TIMER_BG_B or 0, 0, 1)
+	ct.bgColor.a = U.clamp(tonumber(a) or L.COMBAT_TIMER_BG_A or 1, 0, 1)
+	M.SyncLiveConfig()
+	if M.UpdateCombatTimerAppearance then
+		M:UpdateCombatTimerAppearance()
 	end
 end
 
@@ -577,6 +848,17 @@ function M:CreateLegacySettingsWindow()
 		return list
 	end
 
+	local function buildFontOptions()
+		if not LSM then return nil end
+		local list = {}
+		for key in pairs(LSM:HashTable("font")) do
+			list[#list + 1] = { label = key, value = key }
+		end
+		table.sort(list, function(a, b) return a.label < b.label end)
+		return list
+	end
+
+
 	local function CreateSection(tab, title, collapsed)
 		local header = CreateFrame("Button", nil, tab.content, "ListHeaderThreeSliceTemplate")
 		header:SetHeaderText(title)
@@ -632,6 +914,47 @@ function M:CreateLegacySettingsWindow()
 				refresh()
 				return
 			end
+			set(v)
+			refresh()
+		end
+
+		eb:SetScript("OnEnterPressed", function(self) self:ClearFocus(); apply() end)
+		eb:SetScript("OnEditFocusLost", function() apply() end)
+		eb:SetScript("OnEscapePressed", function(self) self:ClearFocus(); refresh() end)
+
+		if tooltip then
+			fs:SetScript("OnEnter", function()
+				GameTooltip:SetOwner(fs, "ANCHOR_RIGHT")
+				GameTooltip:SetText(tooltip, 1, 1, 1, 1, true)
+				GameTooltip:Show()
+			end)
+			fs:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		end
+
+		table.insert(inputs, refresh)
+		return eb
+	end
+
+	local function AddTextRow(section, label, get, set, tooltip)
+		local row = CreateRow(section, ROW_H)
+		local fs = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+		fs:SetPoint("LEFT", row, "LEFT", LABEL_X, 0)
+		fs:SetText(label)
+		fs:SetJustifyH("LEFT")
+
+		local eb = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
+		eb:SetSize(180, 22)
+		eb:SetAutoFocus(false)
+		eb:SetPoint("LEFT", row, "LEFT", INPUT_X, 0)
+
+		local function refresh()
+			local v = get()
+			if v == nil then v = "" end
+			eb:SetText(tostring(v))
+		end
+
+		local function apply()
+			local v = eb:GetText()
 			set(v)
 			refresh()
 		end
@@ -881,7 +1204,9 @@ function M:CreateLegacySettingsWindow()
 
 	local generalTab = CreateTab(1, "General")
 	local displayTab = CreateTab(2, "Display")
-	local privateTab = CreateTab(3, "Private Auras")
+	local dungeonTab = CreateTab(3, "Dungeon")
+	local combatTab = CreateTab(4, "Combat Timer")
+	local privateTab = CreateTab(5, "Private Auras")
 
 	PanelTemplates_SetNumTabs(panel, #tabs)
 	local bottomBar = CreateFrame("Frame", nil, panel)
@@ -931,7 +1256,9 @@ function M:CreateLegacySettingsWindow()
 		function(v) M:ApplyGeneralConfig(SimpleBossModsDB.pos.x or 0, SimpleBossModsDB.pos.y or 0, SimpleBossModsDB.cfg.general.gap or 6, SimpleBossModsDB.cfg.general.mirror, v, SimpleBossModsDB.cfg.general.autoInsertKeystone) end,
 		"Swap vertical order so bars appear below icons."
 	)
-	AddCheckRow(generalBehavior, "Auto Insert Keystone",
+
+	local dungeonSection = CreateSection(dungeonTab, "Mythic+")
+	AddCheckRow(dungeonSection, "Auto Insert Keystone",
 		function() return SimpleBossModsDB.cfg.general.autoInsertKeystone end,
 		function(v) M:ApplyGeneralConfig(SimpleBossModsDB.pos.x or 0, SimpleBossModsDB.pos.y or 0, SimpleBossModsDB.cfg.general.gap or 6, SimpleBossModsDB.cfg.general.mirror, SimpleBossModsDB.cfg.general.barsBelow, v) end,
 		"Automatically inserts your keystone when the Mythic+ socket opens."
@@ -1007,6 +1334,92 @@ function M:CreateLegacySettingsWindow()
 		function(r, g, b, a) M:ApplyBarBgColor(r, g, b, a) end
 	)
 
+	local combatEnable = CreateSection(combatTab, "Combat Timer")
+	AddCheckRow(combatEnable, "Enable Combat Timer",
+		function() return SimpleBossModsDB.cfg.combatTimer.enabled end,
+		function(v) M:ApplyCombatTimerEnabled(v) end,
+		"Shows a timer while you are in combat."
+	)
+
+	local combatAnchor = CreateSection(combatTab, "Anchor")
+	local combatAnchorParentOptions = select(1, buildAnchorParentLists(SimpleBossModsDB.cfg.combatTimer.anchorParent))
+	AddDropdownRow(combatAnchor, "Anchor From",
+		ANCHOR_POINT_OPTIONS,
+		function() return SimpleBossModsDB.cfg.combatTimer.anchorFrom end,
+		function(v) M:ApplyCombatTimerAnchorFrom(v) end
+	)
+	AddDropdownRow(combatAnchor, "Anchor To Parent",
+		combatAnchorParentOptions,
+		function() return SimpleBossModsDB.cfg.combatTimer.anchorParent end,
+		function(v)
+			M:ApplyCombatTimerAnchorParent(v)
+			RefreshAll()
+		end
+	)
+	AddDropdownRow(combatAnchor, "Anchor To",
+		ANCHOR_POINT_OPTIONS,
+		function() return SimpleBossModsDB.cfg.combatTimer.anchorTo end,
+		function(v) M:ApplyCombatTimerAnchorTo(v) end
+	)
+	AddTextRow(combatAnchor, "Custom Parent (optional)",
+		function() return SimpleBossModsDB.cfg.combatTimer.customParent or "" end,
+		function(v) M:ApplyCombatTimerCustomParent(v) end,
+		"Overrides 'Anchor To Parent' when set. Use a global frame name, e.g. PlayerFrame."
+	)
+	AddNumberRow(combatAnchor, "X Offset",
+		function() return SimpleBossModsDB.cfg.combatTimer.x or 0 end,
+		function(v) M:ApplyCombatTimerPosition(v, SimpleBossModsDB.cfg.combatTimer.y or 0) end,
+		nil, true
+	)
+	AddNumberRow(combatAnchor, "Y Offset",
+		function() return SimpleBossModsDB.cfg.combatTimer.y or 0 end,
+		function(v) M:ApplyCombatTimerPosition(SimpleBossModsDB.cfg.combatTimer.x or 0, v) end,
+		nil, true
+	)
+
+	local combatText = CreateSection(combatTab, "Text")
+	AddNumberRow(combatText, "Font Size",
+		function() return SimpleBossModsDB.cfg.combatTimer.fontSize end,
+		function(v) M:ApplyCombatTimerFontSize(v) end
+	)
+
+	local fontOptions = buildFontOptions()
+	if fontOptions then
+		AddDropdownRow(combatText, "Font",
+			fontOptions,
+			function() return SimpleBossModsDB.cfg.combatTimer.font end,
+			function(v) M:ApplyCombatTimerFont(v) end
+		)
+	else
+		local row = CreateRow(combatText, ROW_H)
+		local fs = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+		fs:SetPoint("LEFT", row, "LEFT", LABEL_X, 0)
+		fs:SetText("LibSharedMedia is not available.")
+	end
+
+	local combatColors = CreateSection(combatTab, "Colors")
+	AddColorRow(combatColors, "Text Color",
+		function()
+			local c = SimpleBossModsDB.cfg.combatTimer.color
+			return c.r, c.g, c.b, c.a
+		end,
+		function(r, g, b, a) M:ApplyCombatTimerColor(r, g, b, a) end
+	)
+	AddColorRow(combatColors, "Border Color",
+		function()
+			local c = SimpleBossModsDB.cfg.combatTimer.borderColor
+			return c.r, c.g, c.b, c.a
+		end,
+		function(r, g, b, a) M:ApplyCombatTimerBorderColor(r, g, b, a) end
+	)
+	AddColorRow(combatColors, "Background Color",
+		function()
+			local c = SimpleBossModsDB.cfg.combatTimer.bgColor
+			return c.r, c.g, c.b, c.a
+		end,
+		function(r, g, b, a) M:ApplyCombatTimerBgColor(r, g, b, a) end
+	)
+
 	local privateAuraDirections = {
 		{ label = "Right", value = "RIGHT" },
 		{ label = "Left", value = "LEFT" },
@@ -1021,37 +1434,43 @@ function M:CreateLegacySettingsWindow()
 		"Toggle private aura icons and sound tracking."
 	)
 
-	local privateLayout = CreateSection(privateTab, "Layout")
-	AddNumberRow(privateLayout, "Private Aura X Offset",
+	local privateAnchor = CreateSection(privateTab, "Anchor")
+	local privateAnchorParentOptions = select(1, buildAnchorParentLists(SimpleBossModsDB.cfg.privateAuras.anchorParent))
+	AddDropdownRow(privateAnchor, "Anchor From",
+		ANCHOR_POINT_OPTIONS,
+		function() return SimpleBossModsDB.cfg.privateAuras.anchorFrom end,
+		function(v) M:ApplyPrivateAuraAnchorFrom(v) end
+	)
+	AddDropdownRow(privateAnchor, "Anchor To Parent",
+		privateAnchorParentOptions,
+		function() return SimpleBossModsDB.cfg.privateAuras.anchorParent end,
+		function(v)
+			M:ApplyPrivateAuraAnchorParent(v)
+			RefreshAll()
+		end
+	)
+	AddDropdownRow(privateAnchor, "Anchor To",
+		ANCHOR_POINT_OPTIONS,
+		function() return SimpleBossModsDB.cfg.privateAuras.anchorTo end,
+		function(v) M:ApplyPrivateAuraAnchorTo(v) end
+	)
+	AddTextRow(privateAnchor, "Custom Parent (optional)",
+		function() return SimpleBossModsDB.cfg.privateAuras.customParent or "" end,
+		function(v) M:ApplyPrivateAuraCustomParent(v) end,
+		"Overrides 'Anchor To Parent' when set. Use a global frame name, e.g. PlayerFrame."
+	)
+	AddNumberRow(privateAnchor, "X Offset",
 		function() return SimpleBossModsDB.cfg.privateAuras.x or 0 end,
-		function(v)
-			M:ApplyPrivateAuraConfig(
-				SimpleBossModsDB.cfg.privateAuras.size,
-				SimpleBossModsDB.cfg.privateAuras.gap,
-				SimpleBossModsDB.cfg.privateAuras.growDirection,
-				v,
-				SimpleBossModsDB.cfg.privateAuras.y,
-				SimpleBossModsDB.cfg.privateAuras.sound
-			)
-		end,
+		function(v) M:ApplyPrivateAuraPosition(v, SimpleBossModsDB.cfg.privateAuras.y or 0) end,
 		nil, true
 	)
-
-	AddNumberRow(privateLayout, "Private Aura Y Offset",
+	AddNumberRow(privateAnchor, "Y Offset",
 		function() return SimpleBossModsDB.cfg.privateAuras.y or 0 end,
-		function(v)
-			M:ApplyPrivateAuraConfig(
-				SimpleBossModsDB.cfg.privateAuras.size,
-				SimpleBossModsDB.cfg.privateAuras.gap,
-				SimpleBossModsDB.cfg.privateAuras.growDirection,
-				SimpleBossModsDB.cfg.privateAuras.x,
-				v,
-				SimpleBossModsDB.cfg.privateAuras.sound
-			)
-		end,
+		function(v) M:ApplyPrivateAuraPosition(SimpleBossModsDB.cfg.privateAuras.x or 0, v) end,
 		nil, true
 	)
 
+	local privateLayout = CreateSection(privateTab, "Layout")
 	AddNumberRow(privateLayout, "Private Aura Icon Size",
 		function() return SimpleBossModsDB.cfg.privateAuras.size end,
 		function(v)
@@ -1385,8 +1804,16 @@ function M:CreateSettingsWindow()
 			end,
 			0.5
 		)
+	end
 
-		addCheckBox(behavior, "Auto Insert Keystone",
+	local function buildDungeonTab(container)
+		local mythic = AG:Create("InlineGroup")
+		mythic:SetTitle("Mythic+")
+		mythic:SetLayout("Flow")
+		mythic:SetFullWidth(true)
+		container:AddChild(mythic)
+
+		addCheckBox(mythic, "Auto Insert Keystone",
 			function() return SimpleBossModsDB.cfg.general.autoInsertKeystone end,
 			function(v)
 				addon:ApplyGeneralConfig(
@@ -1567,6 +1994,141 @@ function M:CreateSettingsWindow()
 		)
 	end
 
+	local function buildCombatTimerTab(container)
+		local _, combatAnchorParentMap = buildAnchorParentLists(SimpleBossModsDB.cfg.combatTimer.anchorParent)
+
+		local enable = AG:Create("InlineGroup")
+		enable:SetTitle("Combat Timer")
+		enable:SetLayout("Flow")
+		enable:SetFullWidth(true)
+		container:AddChild(enable)
+
+		addCheckBox(enable, "Enable Combat Timer",
+			function() return SimpleBossModsDB.cfg.combatTimer.enabled end,
+			function(v) addon:ApplyCombatTimerEnabled(v) end,
+			1
+		)
+
+		local anchor = AG:Create("InlineGroup")
+		anchor:SetTitle("Anchor")
+		anchor:SetLayout("Flow")
+		anchor:SetFullWidth(true)
+		container:AddChild(anchor)
+
+		local customParent
+
+		addDropdown(anchor, "Anchor From",
+			ANCHOR_POINT_MAP,
+			function() return SimpleBossModsDB.cfg.combatTimer.anchorFrom end,
+			function(v) addon:ApplyCombatTimerAnchorFrom(v) end,
+			0.33
+		)
+
+		addDropdown(anchor, "Anchor To Parent",
+			combatAnchorParentMap,
+			function() return SimpleBossModsDB.cfg.combatTimer.anchorParent end,
+			function(v)
+				addon:ApplyCombatTimerAnchorParent(v)
+				if customParent then
+					customParent:SetText(SimpleBossModsDB.cfg.combatTimer.customParent or "")
+				end
+			end,
+			0.33
+		)
+
+		addDropdown(anchor, "Anchor To",
+			ANCHOR_POINT_MAP,
+			function() return SimpleBossModsDB.cfg.combatTimer.anchorTo end,
+			function(v) addon:ApplyCombatTimerAnchorTo(v) end,
+			0.33
+		)
+
+		customParent = AG:Create("EditBox")
+		customParent:SetLabel("Custom Parent (optional)")
+		customParent:SetText(SimpleBossModsDB.cfg.combatTimer.customParent or "")
+		customParent:SetFullWidth(true)
+		customParent:SetCallback("OnEnterPressed", function(widget, _, text)
+			addon:ApplyCombatTimerCustomParent(text)
+			widget:SetText(SimpleBossModsDB.cfg.combatTimer.customParent or "")
+		end)
+		anchor:AddChild(customParent)
+
+		addNumberInput(anchor, "X Offset",
+			function() return SimpleBossModsDB.cfg.combatTimer.x or 0 end,
+			function(v) addon:ApplyCombatTimerPosition(v, SimpleBossModsDB.cfg.combatTimer.y or 0) end,
+			0.5
+		)
+
+		addNumberInput(anchor, "Y Offset",
+			function() return SimpleBossModsDB.cfg.combatTimer.y or 0 end,
+			function(v) addon:ApplyCombatTimerPosition(SimpleBossModsDB.cfg.combatTimer.x or 0, v) end,
+			0.5
+		)
+
+		local text = AG:Create("InlineGroup")
+		text:SetTitle("Text")
+		text:SetLayout("Flow")
+		text:SetFullWidth(true)
+		container:AddChild(text)
+
+		addNumberInput(text, "Font Size",
+			function() return SimpleBossModsDB.cfg.combatTimer.fontSize end,
+			function(v) addon:ApplyCombatTimerFontSize(v) end,
+			0.5
+		)
+
+		if LSM then
+			local fontDropdown = AG:Create("LSM30_Font")
+			fontDropdown:SetLabel("Font")
+			fontDropdown:SetList(LSM:HashTable("font"))
+			fontDropdown:SetValue(SimpleBossModsDB.cfg.combatTimer.font)
+			fontDropdown:SetRelativeWidth(0.5)
+			fontDropdown:SetCallback("OnValueChanged", function(widget, _, value)
+				addon:ApplyCombatTimerFont(value)
+				widget:SetValue(SimpleBossModsDB.cfg.combatTimer.font)
+			end)
+			text:AddChild(fontDropdown)
+		else
+			local label = AG:Create("Label")
+			label:SetText("LibSharedMedia is not available.")
+			label:SetFullWidth(true)
+			text:AddChild(label)
+		end
+
+		local colors = AG:Create("InlineGroup")
+		colors:SetTitle("Colors")
+		colors:SetLayout("Flow")
+		colors:SetFullWidth(true)
+		container:AddChild(colors)
+
+		addColorPicker(colors, "Text Color",
+			function()
+				local c = SimpleBossModsDB.cfg.combatTimer.color
+				return c.r, c.g, c.b, c.a
+			end,
+			function(r, g, b, a) addon:ApplyCombatTimerColor(r, g, b, a) end,
+			0.5
+		)
+
+		addColorPicker(colors, "Border Color",
+			function()
+				local c = SimpleBossModsDB.cfg.combatTimer.borderColor
+				return c.r, c.g, c.b, c.a
+			end,
+			function(r, g, b, a) addon:ApplyCombatTimerBorderColor(r, g, b, a) end,
+			0.5
+		)
+
+		addColorPicker(colors, "Background Color",
+			function()
+				local c = SimpleBossModsDB.cfg.combatTimer.bgColor
+				return c.r, c.g, c.b, c.a
+			end,
+			function(r, g, b, a) addon:ApplyCombatTimerBgColor(r, g, b, a) end,
+			0.5
+		)
+	end
+
 	local function buildPrivateTab(container)
 		local enabled = SimpleBossModsDB.cfg.privateAuras.enabled ~= false
 		local toggle = AG:Create("CheckBox")
@@ -1588,41 +2150,69 @@ function M:CreateSettingsWindow()
 			return
 		end
 
+		local _, privateAnchorParentMap = buildAnchorParentLists(SimpleBossModsDB.cfg.privateAuras.anchorParent)
+
+		local anchor = AG:Create("InlineGroup")
+		anchor:SetTitle("Anchor")
+		anchor:SetLayout("Flow")
+		anchor:SetFullWidth(true)
+		container:AddChild(anchor)
+
+		local customParent
+
+		addDropdown(anchor, "Anchor From",
+			ANCHOR_POINT_MAP,
+			function() return SimpleBossModsDB.cfg.privateAuras.anchorFrom end,
+			function(v) addon:ApplyPrivateAuraAnchorFrom(v) end,
+			0.33
+		)
+
+		addDropdown(anchor, "Anchor To Parent",
+			privateAnchorParentMap,
+			function() return SimpleBossModsDB.cfg.privateAuras.anchorParent end,
+			function(v)
+				addon:ApplyPrivateAuraAnchorParent(v)
+				if customParent then
+					customParent:SetText(SimpleBossModsDB.cfg.privateAuras.customParent or "")
+				end
+			end,
+			0.33
+		)
+
+		addDropdown(anchor, "Anchor To",
+			ANCHOR_POINT_MAP,
+			function() return SimpleBossModsDB.cfg.privateAuras.anchorTo end,
+			function(v) addon:ApplyPrivateAuraAnchorTo(v) end,
+			0.33
+		)
+
+		customParent = AG:Create("EditBox")
+		customParent:SetLabel("Custom Parent (optional)")
+		customParent:SetText(SimpleBossModsDB.cfg.privateAuras.customParent or "")
+		customParent:SetFullWidth(true)
+		customParent:SetCallback("OnEnterPressed", function(widget, _, text)
+			addon:ApplyPrivateAuraCustomParent(text)
+			widget:SetText(SimpleBossModsDB.cfg.privateAuras.customParent or "")
+		end)
+		anchor:AddChild(customParent)
+
+		addNumberInput(anchor, "X Offset",
+			function() return SimpleBossModsDB.cfg.privateAuras.x or 0 end,
+			function(v) addon:ApplyPrivateAuraPosition(v, SimpleBossModsDB.cfg.privateAuras.y or 0) end,
+			0.5
+		)
+
+		addNumberInput(anchor, "Y Offset",
+			function() return SimpleBossModsDB.cfg.privateAuras.y or 0 end,
+			function(v) addon:ApplyPrivateAuraPosition(SimpleBossModsDB.cfg.privateAuras.x or 0, v) end,
+			0.5
+		)
+
 		local layout = AG:Create("InlineGroup")
 		layout:SetTitle("Layout")
 		layout:SetLayout("Flow")
 		layout:SetFullWidth(true)
 		container:AddChild(layout)
-
-		addNumberInput(layout, "Private Aura X Offset",
-			function() return SimpleBossModsDB.cfg.privateAuras.x or 0 end,
-			function(v)
-				addon:ApplyPrivateAuraConfig(
-					SimpleBossModsDB.cfg.privateAuras.size,
-					SimpleBossModsDB.cfg.privateAuras.gap,
-					SimpleBossModsDB.cfg.privateAuras.growDirection,
-					v,
-					SimpleBossModsDB.cfg.privateAuras.y,
-					SimpleBossModsDB.cfg.privateAuras.sound
-				)
-			end,
-			0.5
-		)
-
-		addNumberInput(layout, "Private Aura Y Offset",
-			function() return SimpleBossModsDB.cfg.privateAuras.y or 0 end,
-			function(v)
-				addon:ApplyPrivateAuraConfig(
-					SimpleBossModsDB.cfg.privateAuras.size,
-					SimpleBossModsDB.cfg.privateAuras.gap,
-					SimpleBossModsDB.cfg.privateAuras.growDirection,
-					SimpleBossModsDB.cfg.privateAuras.x,
-					v,
-					SimpleBossModsDB.cfg.privateAuras.sound
-				)
-			end,
-			0.5
-		)
 
 		addNumberInput(layout, "Private Aura Icon Size",
 			function() return SimpleBossModsDB.cfg.privateAuras.size end,
@@ -1744,6 +2334,8 @@ function M:CreateSettingsWindow()
 		{ text = "General", value = "General" },
 		{ text = "Icons", value = "Icons" },
 		{ text = "Bars", value = "Bars" },
+		{ text = "Dungeon", value = "Dungeon" },
+		{ text = "Combat Timer", value = "Combat" },
 		{ text = "Private Auras", value = "Private" },
 	})
 	tabs:SetStatusTable(status)
@@ -1751,6 +2343,8 @@ function M:CreateSettingsWindow()
 		General = true,
 		Icons = true,
 		Bars = true,
+		Dungeon = true,
+		Combat = true,
 		Private = true,
 	}
 	if status.selected == "Media" then
@@ -1772,6 +2366,10 @@ function M:CreateSettingsWindow()
 			buildIconsTab(scroll)
 		elseif group == "Bars" then
 			buildBarsTab(scroll)
+		elseif group == "Dungeon" then
+			buildDungeonTab(scroll)
+		elseif group == "Combat" then
+			buildCombatTimerTab(scroll)
 		elseif group == "Private" then
 			buildPrivateTab(scroll)
 		end

@@ -55,11 +55,90 @@ frames.barsParent = barsParent
 
 local privateAurasAnchor = CreateFrame("Frame", ADDON_NAME .. "_PrivateAuras", UIParent)
 privateAurasAnchor:SetSize(1, 1)
-privateAurasAnchor:SetPoint("CENTER", UIParent, "CENTER", L.PRIVATE_AURA_X, L.PRIVATE_AURA_Y + C.GLOBAL_Y_NUDGE)
 frames.privateAurasAnchor = privateAurasAnchor
+
+local getPrivateAuraLayout
+
+function M:UpdatePrivateAuraAnchorPosition()
+	if not privateAurasAnchor then return end
+	local _, _, _, width, height = getPrivateAuraLayout()
+	privateAurasAnchor:SetSize(width or 1, height or 1)
+	privateAurasAnchor:ClearAllPoints()
+	local parent = UIParent
+	local parentName = L.PRIVATE_AURA_PARENT_NAME
+	if type(parentName) == "string" and parentName ~= "" then
+		parent = _G[parentName] or UIParent
+	end
+	privateAurasAnchor:SetPoint(
+		L.PRIVATE_AURA_ANCHOR_FROM or "CENTER",
+		parent,
+		L.PRIVATE_AURA_ANCHOR_TO or "CENTER",
+		L.PRIVATE_AURA_X or 0,
+		(L.PRIVATE_AURA_Y or 0) + C.GLOBAL_Y_NUDGE
+	)
+end
+
+local COMBAT_TIMER_PAD_X = 8
+local COMBAT_TIMER_PAD_Y = 4
+local COMBAT_TIMER_BORDER_THICKNESS = 1
+
+local combatTimerFrame = CreateFrame("Frame", ADDON_NAME .. "_CombatTimer", UIParent)
+combatTimerFrame:SetSize(1, 1)
+do
+	local parent = UIParent
+	local parentName = L.COMBAT_TIMER_PARENT_NAME
+	if type(parentName) == "string" and parentName ~= "" then
+		parent = _G[parentName] or UIParent
+	end
+	combatTimerFrame:SetPoint(
+		L.COMBAT_TIMER_ANCHOR_FROM or "CENTER",
+		parent,
+		L.COMBAT_TIMER_ANCHOR_TO or "CENTER",
+		L.COMBAT_TIMER_X,
+		(L.COMBAT_TIMER_Y or 0) + C.GLOBAL_Y_NUDGE
+	)
+end
+combatTimerFrame:Hide()
+frames.combatTimerFrame = combatTimerFrame
+
+local combatTimerBg = combatTimerFrame:CreateTexture(nil, "BACKGROUND")
+combatTimerBg:SetAllPoints()
+combatTimerFrame.bg = combatTimerBg
+
+local combatTimerText = combatTimerFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+combatTimerText:SetPoint("CENTER", combatTimerFrame, "CENTER", 0, 0)
+combatTimerFrame.text = combatTimerText
 
 local privateAuraBorderThickness
 local ensurePrivateAuraOverlay
+getPrivateAuraLayout = function()
+	local size = L.PRIVATE_AURA_SIZE or 0
+	local gap = L.PRIVATE_AURA_GAP or 0
+	local step = size + gap
+	local maxCount = C.PRIVATE_AURA_MAX or 1
+	local dir = L.PRIVATE_AURA_GROW or "RIGHT"
+	local width, height, startX, startY, stepX, stepY
+
+	if dir == "LEFT" or dir == "RIGHT" then
+		width = size + step * (maxCount - 1)
+		height = size
+		stepX = (dir == "RIGHT") and step or -step
+		stepY = 0
+		startX = (dir == "RIGHT") and (-width * 0.5 + size * 0.5) or (width * 0.5 - size * 0.5)
+		startY = 0
+	else
+		width = size
+		height = size + step * (maxCount - 1)
+		stepX = 0
+		stepY = (dir == "UP") and step or -step
+		startX = 0
+		startY = (dir == "UP") and (-height * 0.5 + size * 0.5) or (height * 0.5 - size * 0.5)
+	end
+
+	return size, step, maxCount, width, height, startX, startY, stepX, stepY
+end
+
+M:UpdatePrivateAuraAnchorPosition()
 
 function M:SetPosition(x, y)
 	x = tonumber(x) or 0
@@ -100,9 +179,42 @@ function M:SetPrivateAuraPosition(x, y)
 		SimpleBossModsDB.cfg.privateAuras.x = x
 		SimpleBossModsDB.cfg.privateAuras.y = y
 	end
+	L.PRIVATE_AURA_X = x
+	L.PRIVATE_AURA_Y = y
+	if self.UpdatePrivateAuraAnchorPosition then
+		self:UpdatePrivateAuraAnchorPosition()
+	end
+end
 
-	privateAurasAnchor:ClearAllPoints()
-	privateAurasAnchor:SetPoint("CENTER", UIParent, "CENTER", x, y + C.GLOBAL_Y_NUDGE)
+local function formatCombatTimer(secs)
+	if not secs or secs < 0 then secs = 0 end
+	local minutes = math.floor(secs / 60)
+	local seconds = math.floor(secs % 60)
+	return string.format("%02d:%02d", minutes, seconds)
+end
+
+local function updateCombatTimerSize()
+	local w = combatTimerText:GetStringWidth() or 0
+	local h = combatTimerText:GetStringHeight() or 0
+	combatTimerFrame:SetSize(math.max(1, w + COMBAT_TIMER_PAD_X * 2), math.max(1, h + COMBAT_TIMER_PAD_Y * 2))
+end
+
+local function setCombatTimerText(seconds)
+	local text = formatCombatTimer(seconds)
+	if combatTimerFrame._lastText == text then return end
+	combatTimerFrame._lastText = text
+	combatTimerText:SetText(text)
+	updateCombatTimerSize()
+end
+
+local function combatTimerOnUpdate()
+	if not M._combatStartTime then return end
+	local secs = GetTime() - M._combatStartTime
+	if secs < 0 then secs = 0 end
+	local whole = math.floor(secs)
+	if combatTimerFrame._lastSeconds == whole then return end
+	combatTimerFrame._lastSeconds = whole
+	setCombatTimerText(whole)
 end
 
 local function hidePrivateAuraOverlays(self)
@@ -120,6 +232,9 @@ local function hideTestPrivateAuraFrames(self)
 end
 
 function M:UpdatePrivateAuraAnchor()
+	if self.UpdatePrivateAuraAnchorPosition then
+		self:UpdatePrivateAuraAnchorPosition()
+	end
 	if not (C_UnitAuras and C_UnitAuras.AddPrivateAuraAnchor) then return end
 
 	if self._privateAuraAnchorIDs and C_UnitAuras.RemovePrivateAuraAnchor then
@@ -140,19 +255,10 @@ function M:UpdatePrivateAuraAnchor()
 	end
 
 	privateAurasAnchor:Show()
-	local step = L.PRIVATE_AURA_SIZE + L.PRIVATE_AURA_GAP
-	local dir = L.PRIVATE_AURA_GROW
+	local size, _, _, _, _, startX, startY, stepX, stepY = getPrivateAuraLayout()
 	for i = 1, (C.PRIVATE_AURA_MAX or 1) do
-		local offsetX, offsetY = 0, 0
-		if dir == "LEFT" then
-			offsetX = -step * (i - 1)
-		elseif dir == "RIGHT" then
-			offsetX = step * (i - 1)
-		elseif dir == "UP" then
-			offsetY = step * (i - 1)
-		else
-			offsetY = -step * (i - 1)
-		end
+		local offsetX = startX + stepX * (i - 1)
+		local offsetY = startY + stepY * (i - 1)
 
 		local info = buildPrivateAuraAnchorInfo(i, offsetX, offsetY)
 		local ok, id = pcall(C_UnitAuras.AddPrivateAuraAnchor, info)
@@ -164,7 +270,7 @@ function M:UpdatePrivateAuraAnchor()
 		if overlay then
 			overlay:ClearAllPoints()
 			overlay:SetPoint("CENTER", privateAurasAnchor, "CENTER", offsetX, offsetY)
-			overlay:SetSize(L.PRIVATE_AURA_SIZE, L.PRIVATE_AURA_SIZE)
+			overlay:SetSize(size, size)
 			overlay:SetFrameLevel(privateAurasAnchor:GetFrameLevel() + 50)
 			M.ensureFullBorder(overlay, privateAuraBorderThickness())
 		end
@@ -382,25 +488,14 @@ function M:UpdateTestPrivateAura()
 	if not L.PRIVATE_AURA_ENABLED then return end
 	local frames = self._testPrivateAuraFrames
 	if not frames then return end
-	local size = L.PRIVATE_AURA_SIZE
-	local step = size + L.PRIVATE_AURA_GAP
-	local dir = L.PRIVATE_AURA_GROW
+	local size, _, _, _, _, startX, startY, stepX, stepY = getPrivateAuraLayout()
 	local fontSize = math.max(12, math.floor(size * 0.6 + 0.5))
 
 	for i, f in ipairs(frames) do
 		f:SetSize(size, size)
 		f:ClearAllPoints()
-		local offsetX, offsetY = 0, 0
-		local offset = step * (i - 1)
-		if dir == "LEFT" then
-			offsetX = -offset
-		elseif dir == "RIGHT" then
-			offsetX = offset
-		elseif dir == "UP" then
-			offsetY = offset
-		else
-			offsetY = -offset
-		end
+		local offsetX = startX + stepX * (i - 1)
+		local offsetY = startY + stepY * (i - 1)
 		f:SetPoint("CENTER", privateAurasAnchor, "CENTER", offsetX, offsetY)
 
 		if f.bg then
@@ -604,6 +699,65 @@ function M:SetupPrivateAuraSoundWatcher()
 	end
 
 	self._privateAuraSoundUsesCount = true
+end
+
+-- =========================
+-- Combat timer
+-- =========================
+function M:UpdateCombatTimerAppearance()
+	if not combatTimerFrame then return end
+	combatTimerText:SetFont(L.COMBAT_TIMER_FONT_PATH or L.FONT_PATH or C.FONT_PATH, L.COMBAT_TIMER_FONT_SIZE or 16, C.FONT_FLAGS)
+	combatTimerText:SetTextColor(L.COMBAT_TIMER_COLOR_R or 1, L.COMBAT_TIMER_COLOR_G or 1, L.COMBAT_TIMER_COLOR_B or 1, L.COMBAT_TIMER_COLOR_A or 1)
+	combatTimerBg:SetColorTexture(L.COMBAT_TIMER_BG_R or 0, L.COMBAT_TIMER_BG_G or 0, L.COMBAT_TIMER_BG_B or 0, L.COMBAT_TIMER_BG_A or 1)
+	combatTimerFrame:ClearAllPoints()
+	local parent = UIParent
+	local parentName = L.COMBAT_TIMER_PARENT_NAME
+	if type(parentName) == "string" and parentName ~= "" then
+		parent = _G[parentName] or UIParent
+	end
+	combatTimerFrame:SetPoint(
+		L.COMBAT_TIMER_ANCHOR_FROM or "CENTER",
+		parent,
+		L.COMBAT_TIMER_ANCHOR_TO or "CENTER",
+		L.COMBAT_TIMER_X or 0,
+		(L.COMBAT_TIMER_Y or 0) + C.GLOBAL_Y_NUDGE
+	)
+	if M.ensureFullBorder then
+		M.ensureFullBorder(combatTimerFrame, COMBAT_TIMER_BORDER_THICKNESS, L.COMBAT_TIMER_BORDER_R or 0, L.COMBAT_TIMER_BORDER_G or 0, L.COMBAT_TIMER_BORDER_B or 0, L.COMBAT_TIMER_BORDER_A or 1)
+	end
+	updateCombatTimerSize()
+end
+
+function M:StartCombatTimer(reset)
+	if not L.COMBAT_TIMER_ENABLED then return end
+	if reset or not self._combatStartTime then
+		self._combatStartTime = GetTime()
+	end
+	combatTimerFrame._lastSeconds = nil
+	setCombatTimerText(math.floor((GetTime() - self._combatStartTime) or 0))
+	combatTimerFrame:SetScript("OnUpdate", combatTimerOnUpdate)
+	combatTimerFrame:Show()
+end
+
+function M:StopCombatTimer()
+	if combatTimerFrame then
+		combatTimerFrame:SetScript("OnUpdate", nil)
+		combatTimerFrame:Hide()
+		combatTimerFrame._lastSeconds = nil
+	end
+	self._combatStartTime = nil
+end
+
+function M:UpdateCombatTimerState()
+	if not L.COMBAT_TIMER_ENABLED then
+		self:StopCombatTimer()
+		return
+	end
+	if InCombatLockdown and InCombatLockdown() then
+		self:StartCombatTimer(false)
+	else
+		self:StopCombatTimer()
+	end
 end
 
 -- =========================
@@ -933,17 +1087,113 @@ M.applyBarMirror = applyBarMirror
 local function setBarFillFlat(barFrame, r, g, b, a)
 	if not barFrame or not barFrame.sb then return end
 	local texPath = L.BAR_TEX or C.BAR_TEX_DEFAULT or "Interface\\Buttons\\WHITE8X8"
+	local aa = a or 1
+	if barFrame.__sbmBarTex == texPath
+		and barFrame.__sbmBarR == r
+		and barFrame.__sbmBarG == g
+		and barFrame.__sbmBarB == b
+		and barFrame.__sbmBarA == aa
+		and barFrame.sbTex then
+		return
+	end
+
+	barFrame.__sbmBarTex = texPath
+	barFrame.__sbmBarR = r
+	barFrame.__sbmBarG = g
+	barFrame.__sbmBarB = b
+	barFrame.__sbmBarA = aa
+
 	barFrame.sb:SetStatusBarTexture(texPath)
 	local tex = barFrame.sb:GetStatusBarTexture()
 	barFrame.sbTex = tex
-	barFrame.sb:SetStatusBarColor(r, g, b, a or 1)
+	barFrame.sb:SetStatusBarColor(r, g, b, aa)
 	if tex then
 		tex:SetDrawLayer("ARTWORK")
-		tex:SetVertexColor(r, g, b, a or 1)
+		tex:SetVertexColor(r, g, b, aa)
 	end
 end
 
 M.setBarFillFlat = setBarFillFlat
+
+-- =========================
+-- Tooltips
+-- =========================
+local function isSecretValue(value)
+	return type(issecretvalue) == "function" and issecretvalue(value)
+end
+
+local function getEventRecordFromFrame(frame)
+	if not frame then return nil end
+	local id = frame.__id
+	if not id and frame.__owner and frame.__owner.__id then
+		id = frame.__owner.__id
+	end
+	if not id then return nil end
+	if not M.events then return nil end
+	return M.events[id]
+end
+
+local function trySetSpellTooltip(spellID)
+	if not (GameTooltip and GameTooltip.SetSpellByID) then return false end
+	local ok = pcall(GameTooltip.SetSpellByID, GameTooltip, spellID)
+	return ok
+end
+
+local function showEventTooltip(self)
+	if not GameTooltip then return end
+	local rec = getEventRecordFromFrame(self)
+	if not rec then return end
+	if type(GameTooltip_SetDefaultAnchor) == "function" then
+		GameTooltip_SetDefaultAnchor(GameTooltip, self)
+	else
+		GameTooltip:SetOwner(self, "ANCHOR_CURSOR")
+	end
+
+	local eventInfo = rec.eventInfo
+	local usedSpell = false
+	if eventInfo then
+		local spellID = eventInfo.spellID
+		if isSecretValue(spellID) then
+			usedSpell = trySetSpellTooltip(spellID)
+		elseif type(spellID) == "number" and spellID > 0 then
+			usedSpell = trySetSpellTooltip(spellID)
+		end
+	end
+
+	if not usedSpell then
+		local label = eventInfo and U.safeGetLabel(eventInfo) or nil
+		if not isSecretValue(label) then
+			if not label or label == "" then
+				if type(rec.id) == "number" then
+					label = "Event " .. tostring(rec.id)
+				else
+					label = "Ability"
+				end
+			end
+		end
+		GameTooltip:SetText(label or "Ability", 1, 1, 1, 1, true)
+	end
+	GameTooltip:Show()
+end
+
+local function hideEventTooltip(self)
+	if not GameTooltip then return end
+	if GameTooltip:IsOwned(self) then
+		GameTooltip:Hide()
+	end
+end
+
+local function iconTooltipOnEnter(self)
+	showEventTooltip(self)
+end
+
+local function barIconTooltipOnEnter(self)
+	showEventTooltip(self)
+end
+
+local function barTooltipOnEnter(self)
+	showEventTooltip(self)
+end
 
 -- =========================
 -- Pools
@@ -1009,6 +1259,14 @@ local function acquireIcon()
 		ind:SetAllPoints(main)
 		ind:SetFrameLevel(tf:GetFrameLevel() + 10)
 		f.indicatorsFrame = ind
+
+		f:EnableMouse(true)
+		if f.SetMouseClickEnabled then
+			f:SetMouseClickEnabled(false)
+		end
+		f:SetScript("OnEnter", iconTooltipOnEnter)
+		f:SetScript("OnLeave", hideEventTooltip)
+		f:SetScript("OnHide", hideEventTooltip)
 	end
 
 	f:SetSize(L.ICON_SIZE, L.ICON_SIZE)
@@ -1049,6 +1307,13 @@ local function acquireBar()
 	local f = tremove(barPool)
 	if not f then
 		f = CreateFrame("Frame", nil, barsParent)
+		f:EnableMouse(true)
+		if f.SetMouseClickEnabled then
+			f:SetMouseClickEnabled(false)
+		end
+		f:SetScript("OnEnter", barTooltipOnEnter)
+		f:SetScript("OnLeave", hideEventTooltip)
+		f:SetScript("OnHide", hideEventTooltip)
 
 		local bg = f:CreateTexture(nil, "BACKGROUND")
 		bg:SetAllPoints()
@@ -1066,6 +1331,14 @@ local function acquireBar()
 		local iconFrame = CreateFrame("Frame", nil, leftFrame)
 		iconFrame:SetAllPoints()
 		f.iconFrame = iconFrame
+		iconFrame.__owner = f
+		iconFrame:EnableMouse(true)
+		if iconFrame.SetMouseClickEnabled then
+			iconFrame:SetMouseClickEnabled(false)
+		end
+		iconFrame:SetScript("OnEnter", barIconTooltipOnEnter)
+		iconFrame:SetScript("OnLeave", hideEventTooltip)
+		iconFrame:SetScript("OnHide", hideEventTooltip)
 
 		local icon = iconFrame:CreateTexture(nil, "ARTWORK")
 		icon:SetAllPoints()
