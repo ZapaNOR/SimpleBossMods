@@ -84,7 +84,16 @@ M.Defaults = M.Defaults or {
 			thresholdToBar = C.THRESHOLD_TO_BAR,
 			font = "SBM Expressway",
 		},
-		icons = { size = 64, fontSize = 32, borderThickness = 2, font = "SBM Expressway" },
+		icons = {
+			enabled = true,
+			size = 64,
+			fontSize = 32,
+			borderThickness = 2,
+			font = "SBM Expressway",
+			gap = 8,
+			perRow = C.ICONS_PER_ROW,
+			limit = 0,
+		},
 		bars = {
 			width = 352,
 			height = 36,
@@ -171,7 +180,23 @@ function M:EnsureDefaults()
 		size = M.Defaults.cfg.icons.size,
 		fontSize = M.Defaults.cfg.icons.fontSize,
 		borderThickness = M.Defaults.cfg.icons.borderThickness,
+		enabled = M.Defaults.cfg.icons.enabled,
+		gap = M.Defaults.cfg.icons.gap,
+		perRow = M.Defaults.cfg.icons.perRow,
+		limit = M.Defaults.cfg.icons.limit,
 	}
+	if cfg.icons.enabled == nil then
+		cfg.icons.enabled = M.Defaults.cfg.icons.enabled
+	end
+	if cfg.icons.gap == nil then
+		cfg.icons.gap = M.Defaults.cfg.icons.gap
+	end
+	if cfg.icons.perRow == nil then
+		cfg.icons.perRow = M.Defaults.cfg.icons.perRow
+	end
+	if cfg.icons.limit == nil then
+		cfg.icons.limit = M.Defaults.cfg.icons.limit
+	end
 	if cfg.icons.font == nil then
 		cfg.icons.font = cfg.general.font or M.Defaults.cfg.icons.font
 	end
@@ -394,9 +419,13 @@ function M.SyncLiveConfig()
 	L.AUTO_INSERT_KEYSTONE = gc.autoInsertKeystone and true or false
 	L.THRESHOLD_TO_BAR = U.clamp(tonumber(gc.thresholdToBar) or C.THRESHOLD_TO_BAR, 0.1, 600)
 
+	L.ICONS_ENABLED = ic.enabled ~= false
 	L.ICON_SIZE = ic.size
 	L.ICON_FONT_SIZE = ic.fontSize
 	L.ICON_BORDER_THICKNESS = ic.borderThickness
+	L.ICON_GAP = U.clamp(U.round(tonumber(ic.gap) or M.Defaults.cfg.icons.gap), -50, 50)
+	L.ICONS_PER_ROW = U.clamp(U.round(tonumber(ic.perRow) or C.ICONS_PER_ROW), 1, 20)
+	L.ICONS_LIMIT = U.clamp(U.round(tonumber(ic.limit) or 0), 0, 200)
 	L.ICON_FONT_KEY = ic.font or M.Defaults.cfg.icons.font
 	L.ICON_FONT_PATH = C.FONT_PATH
 	if LSM then

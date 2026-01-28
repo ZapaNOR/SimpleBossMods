@@ -161,6 +161,7 @@ function M:ApplyTestIndicators(frame, isIcon)
 end
 
 function M:StopTest()
+	self._testActive = nil
 	if self._testTicker then
 		self._testTicker:Cancel()
 		self._testTicker = nil
@@ -187,6 +188,7 @@ end
 
 function M:StartTest()
 	self:StopTest()
+	self._testActive = true
 	if self.ShowTestPrivateAura then
 		self:ShowTestPrivateAura(true)
 	end

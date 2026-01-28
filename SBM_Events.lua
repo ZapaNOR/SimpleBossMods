@@ -468,6 +468,10 @@ ef:SetScript("OnEvent", function(_, event, ...)
 		end
 
 		M:CreateSettingsPanel()
+		if not (InCombatLockdown and InCombatLockdown()) then
+			local now = (GetTime and GetTime()) or 0
+			M._suppressTimelineUntil = now + 0.5
+		end
 		M:Tick()
 		M:LayoutAll()
 		if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then

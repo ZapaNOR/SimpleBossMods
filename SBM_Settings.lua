@@ -28,6 +28,7 @@ local ANCHOR_PARENT_OPTIONS = {
 	{ label = "SBM: Main Anchor", value = "SimpleBossMods_Anchor" },
 	{ label = "SBM: Icons", value = "SimpleBossMods_Icons" },
 	{ label = "SBM: Bars", value = "SimpleBossMods_Bars" },
+	{ label = "SBM: Private Auras", value = "SimpleBossMods_PrivateAuras" },
 	{ label = "Blizzard: Player Frame", value = "PlayerFrame" },
 	{ label = "Blizzard: Target Frame", value = "TargetFrame" },
 	{ label = "Blizzard: Focus Frame", value = "FocusFrame" },
@@ -193,6 +194,46 @@ function M:ApplyIconConfig(size, fontSize, borderThickness)
 		M.applyIconFont(f.timeText)
 	end
 
+	self:LayoutAll()
+end
+
+function M:ApplyIconEnabled(enabled)
+	local ic = SimpleBossModsDB.cfg.icons
+	ic.enabled = enabled and true or false
+
+	M.SyncLiveConfig()
+
+	if not ic.enabled then
+		for _, rec in pairs(self.events) do
+			if rec.iconFrame then
+				M.releaseIcon(rec.iconFrame)
+				rec.iconFrame = nil
+			end
+		end
+	else
+		for id, rec in pairs(self.events) do
+			self:updateRecord(id, rec.eventInfo, rec.remaining)
+		end
+	end
+
+	self:LayoutAll()
+end
+
+function M:ApplyIconLayoutConfig(gap, perRow, limit)
+	local ic = SimpleBossModsDB.cfg.icons
+	local g = tonumber(gap)
+	if g == nil then g = ic.gap end
+	ic.gap = U.clamp(U.round(g), -50, 50)
+
+	local pr = tonumber(perRow)
+	if pr == nil then pr = ic.perRow end
+	ic.perRow = U.clamp(U.round(pr), 1, 20)
+
+	local lim = tonumber(limit)
+	if lim == nil then lim = ic.limit end
+	ic.limit = U.clamp(U.round(lim), 0, 200)
+
+	M.SyncLiveConfig()
 	self:LayoutAll()
 end
 
@@ -417,6 +458,9 @@ function M:ApplyPrivateAuraEnabled(enabled)
 	if M.UpdatePrivateAuraFrames then
 		M:UpdatePrivateAuraFrames(false)
 	end
+	if pc.enabled and M._testActive and M.ShowTestPrivateAura then
+		M:ShowTestPrivateAura(true)
+	end
 end
 
 function M:ApplyPrivateAuraSoundChannel(channel)
@@ -497,6 +541,13 @@ function M:ApplyCombatTimerEnabled(enabled)
 	M.SyncLiveConfig()
 	if M.UpdateCombatTimerState then
 		M:UpdateCombatTimerState()
+	end
+	if ct.enabled and M._testActive and M.StartCombatTimer then
+		M._testCombatTimer = true
+		M:StartCombatTimer(true)
+	end
+	if not ct.enabled then
+		M._testCombatTimer = nil
 	end
 end
 
@@ -1242,7 +1293,7 @@ function M:CreateLegacySettingsWindow()
 	AddNumberRow(generalPosition, "Gap",
 		function() return SimpleBossModsDB.cfg.general.gap or 6 end,
 		function(v) M:ApplyGeneralConfig(SimpleBossModsDB.pos.x or 0, SimpleBossModsDB.pos.y or 0, U.clamp(U.round(v), -30, 30), SimpleBossModsDB.cfg.general.mirror, SimpleBossModsDB.cfg.general.barsBelow, SimpleBossModsDB.cfg.general.autoInsertKeystone) end,
-		"Used for icon gap and bars-to-icons gap.", false, true
+		"Used for bar spacing and bars-to-icons gap.", false, true
 	)
 
 	local generalBehavior = CreateSection(generalTab, "Behavior")
@@ -1265,71 +1316,88 @@ function M:CreateLegacySettingsWindow()
 	)
 
 	local iconsSection = CreateSection(displayTab, "Icons")
-	AddNumberRow(iconsSection, "Icon Size",
+	AddCheckRow(iconsSection, "Enable Large Icons",
+		function() return SimpleBossModsDB.cfg.icons.enabled ~= false end,
+		function(v) M:ApplyIconEnabled(v) end,
+		"Disables the big icon row above/below the bars."
+	)
+	AddNumberRow(iconsSection, "Indicator Size",
+		function() return SimpleBossModsDB.cfg.indicators.iconSize or 0 end,
+		function(v) M:ApplyIndicatorConfig(v, SimpleBossModsDB.cfg.indicators.barSize or 0) end,
+		"0 uses auto size."
+	)
+	AddNumberRow(iconsSection, "Gap",
+		function() return SimpleBossModsDB.cfg.icons.gap end,
+		function(v) M:ApplyIconLayoutConfig(v, SimpleBossModsDB.cfg.icons.perRow, SimpleBossModsDB.cfg.icons.limit) end,
+		"Space between large icons. Supports negative values."
+	)
+	AddNumberRow(iconsSection, "Per Row",
+		function() return SimpleBossModsDB.cfg.icons.perRow end,
+		function(v) M:ApplyIconLayoutConfig(SimpleBossModsDB.cfg.icons.gap, v, SimpleBossModsDB.cfg.icons.limit) end
+	)
+	AddNumberRow(iconsSection, "Max",
+		function() return SimpleBossModsDB.cfg.icons.limit end,
+		function(v) M:ApplyIconLayoutConfig(SimpleBossModsDB.cfg.icons.gap, SimpleBossModsDB.cfg.icons.perRow, v) end,
+		"0 means unlimited."
+	)
+	AddNumberRow(iconsSection, "Size",
 		function() return SimpleBossModsDB.cfg.icons.size end,
 		function(v) M:ApplyIconConfig(v, SimpleBossModsDB.cfg.icons.fontSize, SimpleBossModsDB.cfg.icons.borderThickness) end
 	)
-	AddNumberRow(iconsSection, "Icon Font Size",
+	AddNumberRow(iconsSection, "Font Size",
 		function() return SimpleBossModsDB.cfg.icons.fontSize end,
 		function(v) M:ApplyIconConfig(SimpleBossModsDB.cfg.icons.size, v, SimpleBossModsDB.cfg.icons.borderThickness) end
 	)
-	AddNumberRow(iconsSection, "Icon Border Thickness",
+	AddNumberRow(iconsSection, "Border Thickness",
 		function() return SimpleBossModsDB.cfg.icons.borderThickness end,
 		function(v) M:ApplyIconConfig(SimpleBossModsDB.cfg.icons.size, SimpleBossModsDB.cfg.icons.fontSize, v) end,
 		"0 disables icon border."
 	)
 
 	local barsSection = CreateSection(displayTab, "Bars")
-	AddNumberRow(barsSection, "Bar Width",
+	AddNumberRow(barsSection, "Width",
 		function() return SimpleBossModsDB.cfg.bars.width end,
 		function(v) M:ApplyBarConfig(v, SimpleBossModsDB.cfg.bars.height, SimpleBossModsDB.cfg.bars.fontSize, SimpleBossModsDB.cfg.bars.borderThickness) end
 	)
-	AddNumberRow(barsSection, "Bar Height",
+	AddNumberRow(barsSection, "Height",
 		function() return SimpleBossModsDB.cfg.bars.height end,
 		function(v) M:ApplyBarConfig(SimpleBossModsDB.cfg.bars.width, v, SimpleBossModsDB.cfg.bars.fontSize, SimpleBossModsDB.cfg.bars.borderThickness) end
 	)
-	AddNumberRow(barsSection, "Bar Font Size",
+	AddNumberRow(barsSection, "Font Size",
 		function() return SimpleBossModsDB.cfg.bars.fontSize end,
 		function(v) M:ApplyBarConfig(SimpleBossModsDB.cfg.bars.width, SimpleBossModsDB.cfg.bars.height, v, SimpleBossModsDB.cfg.bars.borderThickness) end
 	)
-	AddNumberRow(barsSection, "Bar Border Thickness",
+	AddNumberRow(barsSection, "Border Thickness",
 		function() return SimpleBossModsDB.cfg.bars.borderThickness end,
 		function(v) M:ApplyBarConfig(SimpleBossModsDB.cfg.bars.width, SimpleBossModsDB.cfg.bars.height, SimpleBossModsDB.cfg.bars.fontSize, v) end
 	)
-	AddNumberRow(barsSection, "Icon -> Bar Threshold (sec)",
-		function() return SimpleBossModsDB.cfg.general.thresholdToBar end,
-		function(v) M:ApplyBarThresholdConfig(v) end,
-		"Switch to bars when remaining time is at or below this value.", true
-	)
-	AddCheckRow(barsSection, "Swap Bar Icon Side",
-		function() return SimpleBossModsDB.cfg.bars.swapIconSide end,
-		function(v) M:ApplyBarIconSideConfig(v) end,
-		"Move the bar icon to the opposite side (respects mirror horizontally)."
-	)
-	AddCheckRow(barsSection, "Hide Bar Icon",
-		function() return SimpleBossModsDB.cfg.bars.hideIcon end,
-		function(v) M:ApplyBarIconVisibilityConfig(v) end,
-		"Hide the bar icon without changing text alignment or fill direction."
-	)
-
-	local indicatorsSection = CreateSection(displayTab, "Indicators")
-	AddNumberRow(indicatorsSection, "Icon Indicator Size",
-		function() return SimpleBossModsDB.cfg.indicators.iconSize or 0 end,
-		function(v) M:ApplyIndicatorConfig(v, SimpleBossModsDB.cfg.indicators.barSize or 0) end,
-		"0 uses auto size."
-	)
-	AddNumberRow(indicatorsSection, "Bar Indicator Size",
+	AddNumberRow(barsSection, "Indicator Size",
 		function() return SimpleBossModsDB.cfg.indicators.barSize or 0 end,
 		function(v) M:ApplyIndicatorConfig(SimpleBossModsDB.cfg.indicators.iconSize or 0, v) end,
 		"0 uses auto size."
 	)
+	AddNumberRow(barsSection, "Display bars when seconds remaining",
+		function() return SimpleBossModsDB.cfg.general.thresholdToBar end,
+		function(v) M:ApplyBarThresholdConfig(v) end,
+		"Bars show at or below this time. Icons use this threshold when enabled.", true
+	)
+	AddCheckRow(barsSection, "Swap Icon Side",
+		function() return SimpleBossModsDB.cfg.bars.swapIconSide end,
+		function(v) M:ApplyBarIconSideConfig(v) end,
+		"Move the icon to the opposite side (respects mirror horizontally)."
+	)
+	AddCheckRow(barsSection, "Hide Icon",
+		function() return SimpleBossModsDB.cfg.bars.hideIcon end,
+		function(v) M:ApplyBarIconVisibilityConfig(v) end,
+		"Hide the icon without changing text alignment or fill direction."
+	)
 
 	local colorsSection = CreateSection(displayTab, "Colors")
-	AddColorRow(colorsSection, "Bar Foreground Color",
+	AddColorRow(colorsSection, "Foreground Color",
 		function() return L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A end,
 		function(r, g, b, a) M:ApplyBarColor(r, g, b, a) end
 	)
-	AddColorRow(colorsSection, "Bar Background Color",
+	AddColorRow(colorsSection, "Background Color",
 		function() return L.BAR_BG_R, L.BAR_BG_G, L.BAR_BG_B, L.BAR_BG_A end,
 		function(r, g, b, a) M:ApplyBarBgColor(r, g, b, a) end
 	)
@@ -1428,7 +1496,7 @@ function M:CreateLegacySettingsWindow()
 	}
 
 	local privateEnable = CreateSection(privateTab, "Private Auras")
-	AddCheckRow(privateEnable, "Enable Private Aura Tracking",
+	AddCheckRow(privateEnable, "Enable Tracking",
 		function() return SimpleBossModsDB.cfg.privateAuras.enabled ~= false end,
 		function(v) M:ApplyPrivateAuraEnabled(v) end,
 		"Toggle private aura icons and sound tracking."
@@ -1471,7 +1539,7 @@ function M:CreateLegacySettingsWindow()
 	)
 
 	local privateLayout = CreateSection(privateTab, "Layout")
-	AddNumberRow(privateLayout, "Private Aura Icon Size",
+	AddNumberRow(privateLayout, "Icon Size",
 		function() return SimpleBossModsDB.cfg.privateAuras.size end,
 		function(v)
 			M:ApplyPrivateAuraConfig(
@@ -1485,7 +1553,7 @@ function M:CreateLegacySettingsWindow()
 		end
 	)
 
-	AddNumberRow(privateLayout, "Private Aura Gap",
+	AddNumberRow(privateLayout, "Icon Gap",
 		function() return SimpleBossModsDB.cfg.privateAuras.gap end,
 		function(v)
 			M:ApplyPrivateAuraConfig(
@@ -1499,7 +1567,7 @@ function M:CreateLegacySettingsWindow()
 		end
 	)
 
-	AddDropdownRow(privateLayout, "Private Aura Grow Direction",
+	AddDropdownRow(privateLayout, "Grow Direction",
 		privateAuraDirections,
 		function() return SimpleBossModsDB.cfg.privateAuras.growDirection end,
 		function(v)
@@ -1518,7 +1586,7 @@ function M:CreateLegacySettingsWindow()
 	local privateSound = CreateSection(privateTab, "Sound")
 	local legacySoundOptions = buildPrivateAuraSoundOptions()
 	if legacySoundOptions then
-		AddDropdownRow(privateSound, "Private Aura Sound",
+		AddDropdownRow(privateSound, "Sound",
 			legacySoundOptions,
 			function() return SimpleBossModsDB.cfg.privateAuras.sound end,
 			function(v)
@@ -1540,7 +1608,7 @@ function M:CreateLegacySettingsWindow()
 		fs:SetText("LibSharedMedia is not available.")
 	end
 
-	AddButton(privateSound, "Test Private Aura Sound", function()
+	AddButton(privateSound, "Test Sound", function()
 		if M.PlayPrivateAuraSound then
 			M:PlayPrivateAuraSound()
 		end
@@ -1830,33 +1898,83 @@ function M:CreateSettingsWindow()
 	end
 
 	local function buildIconsTab(container)
+		local enabled = SimpleBossModsDB.cfg.icons.enabled ~= false
+		local enable = AG:Create("InlineGroup")
+		enable:SetTitle("Large Icons")
+		enable:SetLayout("Flow")
+		enable:SetFullWidth(true)
+		container:AddChild(enable)
+
+		local toggle = AG:Create("CheckBox")
+		toggle:SetLabel("Enable Large Icons")
+		toggle:SetValue(enabled)
+		toggle:SetFullWidth(true)
+		toggle:SetCallback("OnValueChanged", function(_, _, value)
+			addon:ApplyIconEnabled(value)
+			container:ReleaseChildren()
+			buildIconsTab(container)
+		end)
+		enable:AddChild(toggle)
+
+		if not enabled then
+			local note = AG:Create("Label")
+			note:SetText("Large icons are currently disabled.")
+			note:SetFullWidth(true)
+			container:AddChild(note)
+			return
+		end
+
 		local icons = AG:Create("InlineGroup")
-		icons:SetTitle("Icons")
+		icons:SetTitle("Layout")
 		icons:SetLayout("Flow")
 		icons:SetFullWidth(true)
 		container:AddChild(icons)
 
-		addNumberInput(icons, "Icon Size",
+		addNumberInput(icons, "Size",
 			function() return SimpleBossModsDB.cfg.icons.size end,
 			function(v) addon:ApplyIconConfig(v, SimpleBossModsDB.cfg.icons.fontSize, SimpleBossModsDB.cfg.icons.borderThickness) end,
-			0.33
+			0.25
 		)
 
-		addNumberInput(icons, "Icon Font Size",
+		addNumberInput(icons, "Font Size",
 			function() return SimpleBossModsDB.cfg.icons.fontSize end,
 			function(v) addon:ApplyIconConfig(SimpleBossModsDB.cfg.icons.size, v, SimpleBossModsDB.cfg.icons.borderThickness) end,
-			0.33
+			0.25
 		)
 
-		addNumberInput(icons, "Icon Border Thickness",
+		addNumberInput(icons, "Border Thickness",
 			function() return SimpleBossModsDB.cfg.icons.borderThickness end,
 			function(v) addon:ApplyIconConfig(SimpleBossModsDB.cfg.icons.size, SimpleBossModsDB.cfg.icons.fontSize, v) end,
-			0.33
+			0.25
+		)
+
+		addNumberInput(icons, "Indicator Size",
+			function() return SimpleBossModsDB.cfg.indicators.iconSize or 0 end,
+			function(v) addon:ApplyIndicatorConfig(v, SimpleBossModsDB.cfg.indicators.barSize or 0) end,
+			0.25
+		)
+
+		addNumberInput(icons, "Gap",
+			function() return SimpleBossModsDB.cfg.icons.gap end,
+			function(v) addon:ApplyIconLayoutConfig(v, SimpleBossModsDB.cfg.icons.perRow, SimpleBossModsDB.cfg.icons.limit) end,
+			0.25
+		)
+
+		addNumberInput(icons, "Per Row",
+			function() return SimpleBossModsDB.cfg.icons.perRow end,
+			function(v) addon:ApplyIconLayoutConfig(SimpleBossModsDB.cfg.icons.gap, v, SimpleBossModsDB.cfg.icons.limit) end,
+			0.5
+		)
+
+		addNumberInput(icons, "Max (0 = unlimited)",
+			function() return SimpleBossModsDB.cfg.icons.limit end,
+			function(v) addon:ApplyIconLayoutConfig(SimpleBossModsDB.cfg.icons.gap, SimpleBossModsDB.cfg.icons.perRow, v) end,
+			0.5
 		)
 
 		if LSM then
 			local iconFontDropdown = AG:Create("LSM30_Font")
-			iconFontDropdown:SetLabel("Icon Font")
+			iconFontDropdown:SetLabel("Font")
 			iconFontDropdown:SetList(LSM:HashTable("font"))
 			iconFontDropdown:SetValue(SimpleBossModsDB.cfg.icons.font)
 			iconFontDropdown:SetFullWidth(true)
@@ -1880,43 +1998,49 @@ function M:CreateSettingsWindow()
 		bars:SetFullWidth(true)
 		container:AddChild(bars)
 
-		addNumberInput(bars, "Bar Width",
+		addNumberInput(bars, "Width",
 			function() return SimpleBossModsDB.cfg.bars.width end,
 			function(v) addon:ApplyBarConfig(v, SimpleBossModsDB.cfg.bars.height, SimpleBossModsDB.cfg.bars.fontSize, SimpleBossModsDB.cfg.bars.borderThickness) end,
 			0.25
 		)
 
-		addNumberInput(bars, "Bar Height",
+		addNumberInput(bars, "Height",
 			function() return SimpleBossModsDB.cfg.bars.height end,
 			function(v) addon:ApplyBarConfig(SimpleBossModsDB.cfg.bars.width, v, SimpleBossModsDB.cfg.bars.fontSize, SimpleBossModsDB.cfg.bars.borderThickness) end,
 			0.25
 		)
 
-		addNumberInput(bars, "Bar Font Size",
+		addNumberInput(bars, "Font Size",
 			function() return SimpleBossModsDB.cfg.bars.fontSize end,
 			function(v) addon:ApplyBarConfig(SimpleBossModsDB.cfg.bars.width, SimpleBossModsDB.cfg.bars.height, v, SimpleBossModsDB.cfg.bars.borderThickness) end,
 			0.25
 		)
 
-		addNumberInput(bars, "Bar Border Thickness",
+		addNumberInput(bars, "Border Thickness",
 			function() return SimpleBossModsDB.cfg.bars.borderThickness end,
 			function(v) addon:ApplyBarConfig(SimpleBossModsDB.cfg.bars.width, SimpleBossModsDB.cfg.bars.height, SimpleBossModsDB.cfg.bars.fontSize, v) end,
 			0.25
 		)
 
-		addNumberInput(bars, "Icon -> Bar Threshold (sec)",
+		addNumberInput(bars, "Indicator Size",
+			function() return SimpleBossModsDB.cfg.indicators.barSize or 0 end,
+			function(v) addon:ApplyIndicatorConfig(SimpleBossModsDB.cfg.indicators.iconSize or 0, v) end,
+			0.25
+		)
+
+		addNumberInput(bars, "Display bars when seconds remaining",
 			function() return SimpleBossModsDB.cfg.general.thresholdToBar end,
 			function(v) addon:ApplyBarThresholdConfig(v) end,
 			1
 		)
 
-		addCheckBox(bars, "Swap Bar Icon Side",
+		addCheckBox(bars, "Swap Icon Side",
 			function() return SimpleBossModsDB.cfg.bars.swapIconSide end,
 			function(v) addon:ApplyBarIconSideConfig(v) end,
 			0.5
 		)
 
-		addCheckBox(bars, "Hide Bar Icon",
+		addCheckBox(bars, "Hide Icon",
 			function() return SimpleBossModsDB.cfg.bars.hideIcon end,
 			function(v) addon:ApplyBarIconVisibilityConfig(v) end,
 			0.5
@@ -1941,7 +2065,7 @@ function M:CreateSettingsWindow()
 			media:AddChild(fontDropdown)
 
 			local barTextureDropdown = AG:Create("LSM30_Statusbar")
-			barTextureDropdown:SetLabel("Bar Texture")
+			barTextureDropdown:SetLabel("Texture")
 			barTextureDropdown:SetList(LSM:HashTable("statusbar"))
 			barTextureDropdown:SetValue(SimpleBossModsDB.cfg.bars.texture)
 			barTextureDropdown:SetRelativeWidth(0.5)
@@ -1957,37 +2081,19 @@ function M:CreateSettingsWindow()
 			media:AddChild(label)
 		end
 
-		local indicators = AG:Create("InlineGroup")
-		indicators:SetTitle("Indicators")
-		indicators:SetLayout("Flow")
-		indicators:SetFullWidth(true)
-		container:AddChild(indicators)
-
-		addNumberInput(indicators, "Icon Indicator Size",
-			function() return SimpleBossModsDB.cfg.indicators.iconSize or 0 end,
-			function(v) addon:ApplyIndicatorConfig(v, SimpleBossModsDB.cfg.indicators.barSize or 0) end,
-			0.5
-		)
-
-		addNumberInput(indicators, "Bar Indicator Size",
-			function() return SimpleBossModsDB.cfg.indicators.barSize or 0 end,
-			function(v) addon:ApplyIndicatorConfig(SimpleBossModsDB.cfg.indicators.iconSize or 0, v) end,
-			0.5
-		)
-
 		local colors = AG:Create("InlineGroup")
 		colors:SetTitle("Colors")
 		colors:SetLayout("Flow")
 		colors:SetFullWidth(true)
 		container:AddChild(colors)
 
-		addColorPicker(colors, "Bar Foreground Color",
+		addColorPicker(colors, "Foreground Color",
 			function() return L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A end,
 			function(r, g, b, a) addon:ApplyBarColor(r, g, b, a) end,
 			0.5
 		)
 
-		addColorPicker(colors, "Bar Background Color",
+		addColorPicker(colors, "Background Color",
 			function() return L.BAR_BG_R, L.BAR_BG_G, L.BAR_BG_B, L.BAR_BG_A end,
 			function(r, g, b, a) addon:ApplyBarBgColor(r, g, b, a) end,
 			0.5
@@ -1995,19 +2101,33 @@ function M:CreateSettingsWindow()
 	end
 
 	local function buildCombatTimerTab(container)
-		local _, combatAnchorParentMap = buildAnchorParentLists(SimpleBossModsDB.cfg.combatTimer.anchorParent)
-
+		local enabled = SimpleBossModsDB.cfg.combatTimer.enabled and true or false
 		local enable = AG:Create("InlineGroup")
 		enable:SetTitle("Combat Timer")
 		enable:SetLayout("Flow")
 		enable:SetFullWidth(true)
 		container:AddChild(enable)
 
-		addCheckBox(enable, "Enable Combat Timer",
-			function() return SimpleBossModsDB.cfg.combatTimer.enabled end,
-			function(v) addon:ApplyCombatTimerEnabled(v) end,
-			1
-		)
+		local toggle = AG:Create("CheckBox")
+		toggle:SetLabel("Enable Combat Timer")
+		toggle:SetValue(enabled)
+		toggle:SetFullWidth(true)
+		toggle:SetCallback("OnValueChanged", function(_, _, value)
+			addon:ApplyCombatTimerEnabled(value)
+			container:ReleaseChildren()
+			buildCombatTimerTab(container)
+		end)
+		enable:AddChild(toggle)
+
+		if not enabled then
+			local note = AG:Create("Label")
+			note:SetText("Combat timer is currently disabled.")
+			note:SetFullWidth(true)
+			container:AddChild(note)
+			return
+		end
+
+		local _, combatAnchorParentMap = buildAnchorParentLists(SimpleBossModsDB.cfg.combatTimer.anchorParent)
 
 		local anchor = AG:Create("InlineGroup")
 		anchor:SetTitle("Anchor")
@@ -2131,8 +2251,14 @@ function M:CreateSettingsWindow()
 
 	local function buildPrivateTab(container)
 		local enabled = SimpleBossModsDB.cfg.privateAuras.enabled ~= false
+		local enable = AG:Create("InlineGroup")
+		enable:SetTitle("Private Auras")
+		enable:SetLayout("Flow")
+		enable:SetFullWidth(true)
+		container:AddChild(enable)
+
 		local toggle = AG:Create("CheckBox")
-		toggle:SetLabel("Enable Private Aura Tracking")
+		toggle:SetLabel("Enable Tracking")
 		toggle:SetValue(enabled)
 		toggle:SetFullWidth(true)
 		toggle:SetCallback("OnValueChanged", function(_, _, value)
@@ -2140,7 +2266,7 @@ function M:CreateSettingsWindow()
 			container:ReleaseChildren()
 			buildPrivateTab(container)
 		end)
-		container:AddChild(toggle)
+		enable:AddChild(toggle)
 
 		if not enabled then
 			local note = AG:Create("Label")
@@ -2214,7 +2340,7 @@ function M:CreateSettingsWindow()
 		layout:SetFullWidth(true)
 		container:AddChild(layout)
 
-		addNumberInput(layout, "Private Aura Icon Size",
+		addNumberInput(layout, "Icon Size",
 			function() return SimpleBossModsDB.cfg.privateAuras.size end,
 			function(v)
 				addon:ApplyPrivateAuraConfig(
@@ -2229,7 +2355,7 @@ function M:CreateSettingsWindow()
 			0.5
 		)
 
-		addNumberInput(layout, "Private Aura Gap",
+		addNumberInput(layout, "Icon Gap",
 			function() return SimpleBossModsDB.cfg.privateAuras.gap end,
 			function(v)
 				addon:ApplyPrivateAuraConfig(
@@ -2244,7 +2370,7 @@ function M:CreateSettingsWindow()
 			0.5
 		)
 
-		addDropdown(layout, "Private Aura Grow Direction",
+		addDropdown(layout, "Grow Direction",
 			{ RIGHT = "Right", LEFT = "Left", UP = "Up", DOWN = "Down" },
 			function() return SimpleBossModsDB.cfg.privateAuras.growDirection end,
 			function(v)
@@ -2285,7 +2411,7 @@ function M:CreateSettingsWindow()
 
 		if LSM then
 			local soundDropdown = AG:Create("LSM30_Sound")
-			soundDropdown:SetLabel("Private Aura Sound")
+			soundDropdown:SetLabel("Sound")
 			soundDropdown:SetList(getPrivateAuraSoundList())
 			soundDropdown:SetValue(SimpleBossModsDB.cfg.privateAuras.sound)
 			soundDropdown:SetRelativeWidth(0.7)
@@ -2332,7 +2458,7 @@ function M:CreateSettingsWindow()
 	tabs:SetFullHeight(true)
 	tabs:SetTabs({
 		{ text = "General", value = "General" },
-		{ text = "Icons", value = "Icons" },
+		{ text = "Large Icons", value = "Icons" },
 		{ text = "Bars", value = "Bars" },
 		{ text = "Dungeon", value = "Dungeon" },
 		{ text = "Combat Timer", value = "Combat" },

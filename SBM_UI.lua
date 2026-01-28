@@ -237,6 +237,8 @@ function M:UpdatePrivateAuraAnchor()
 	end
 	if not (C_UnitAuras and C_UnitAuras.AddPrivateAuraAnchor) then return end
 
+	hidePrivateAuraOverlays(self)
+
 	if self._privateAuraAnchorIDs and C_UnitAuras.RemovePrivateAuraAnchor then
 		for _, id in ipairs(self._privateAuraAnchorIDs) do
 			if id then
@@ -247,7 +249,8 @@ function M:UpdatePrivateAuraAnchor()
 	self._privateAuraAnchorIDs = {}
 
 	if not L.PRIVATE_AURA_ENABLED then
-		privateAurasAnchor:Hide()
+		privateAurasAnchor:SetSize(1, 1)
+		privateAurasAnchor:Show()
 		hidePrivateAuraOverlays(self)
 		hideTestPrivateAuraFrames(self)
 		self._privateAuraLastCount = 0
@@ -399,6 +402,7 @@ ensurePrivateAuraOverlay = function(self, index)
 		f.__sbmPrivateAuraOverlay = true
 		f:EnableMouse(false)
 		f:SetFrameStrata("HIGH")
+		f:Hide()
 		self._privateAuraOverlays[index] = f
 	end
 	return f

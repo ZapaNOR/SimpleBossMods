@@ -58,17 +58,28 @@ function M:layoutIcons()
 	end
 	table.sort(list, sortByRemaining)
 
-	local count = #list
-	local cols = C.ICONS_PER_ROW
+	local total = #list
+	local limit = L.ICONS_LIMIT or 0
+	local count = total
+	if limit > 0 and count > limit then
+		count = limit
+	end
+	local cols = L.ICONS_PER_ROW or C.ICONS_PER_ROW
+	if cols < 1 then cols = 1 end
 	local rows = (count > 0) and math.ceil(count / cols) or 0
 
 	for i, rec in ipairs(list) do
+		if limit > 0 and i > limit then
+			if rec.iconFrame then
+				rec.iconFrame:Hide()
+			end
+		else
 		local idx = i - 1
 		local row = math.floor(idx / cols)
 		local col = idx % cols
 
-		local x = col * (L.ICON_SIZE + L.GAP)
-		local y = row * (L.ICON_SIZE + L.GAP)
+		local x = col * (L.ICON_SIZE + L.ICON_GAP)
+		local y = row * (L.ICON_SIZE + L.ICON_GAP)
 		local point = "TOPLEFT"
 		if L.MIRROR then
 			x = -x
@@ -81,6 +92,7 @@ function M:layoutIcons()
 		end
 
 		local f = rec.iconFrame
+		f:Show()
 		f:SetSize(L.ICON_SIZE, L.ICON_SIZE)
 		M.ensureFullBorder(f.main, L.ICON_BORDER_THICKNESS)
 
@@ -91,10 +103,13 @@ function M:layoutIcons()
 		elseif f.indicatorsFrame and f.indicatorsFrame.__indicatorTextures then
 			M.layoutIconIndicators(f, f.indicatorsFrame.__indicatorTextures)
 		end
+		end
 	end
 
-	local w = (cols > 0) and (cols * L.ICON_SIZE + (cols - 1) * L.GAP) or 1
-	local h = (rows > 0) and (rows * L.ICON_SIZE + (rows - 1) * L.GAP) or 1
+	local w = (cols > 0) and (cols * L.ICON_SIZE + (cols - 1) * L.ICON_GAP) or 1
+	local h = (rows > 0) and (rows * L.ICON_SIZE + (rows - 1) * L.ICON_GAP) or 1
+	if w < 1 then w = 1 end
+	if h < 1 then h = 1 end
 
 	frames.iconsParent:SetSize(w, h)
 end
@@ -317,6 +332,17 @@ local function refreshBarLabelAndIcon(rec)
 end
 
 function M:ensureIcon(rec)
+	if L.ICONS_ENABLED == false then
+		if rec.iconFrame then
+			M.releaseIcon(rec.iconFrame)
+			rec.iconFrame = nil
+		end
+		if rec.barFrame then
+			M.releaseBar(rec.barFrame)
+			rec.barFrame = nil
+		end
+		return
+	end
 	if rec.iconFrame then return end
 	if rec.barFrame then
 		M.releaseBar(rec.barFrame)
@@ -455,6 +481,7 @@ function M:updateRecord(eventID, eventInfo, remaining)
 		updateRecTiming(rec, rec.remaining)
 	end
 
+	local iconsEnabled = L.ICONS_ENABLED ~= false
 	local wantBar = rec.forceBar
 	if not wantBar and type(rec.remaining) == "number" and rec.remaining <= L.THRESHOLD_TO_BAR then
 		wantBar = true
@@ -464,7 +491,18 @@ function M:updateRecord(eventID, eventInfo, remaining)
 	if wantBar then
 		self:ensureBar(rec)
 	else
-		self:ensureIcon(rec)
+		if iconsEnabled then
+			self:ensureIcon(rec)
+		else
+			if rec.iconFrame then
+				M.releaseIcon(rec.iconFrame)
+				rec.iconFrame = nil
+			end
+			if rec.barFrame then
+				M.releaseBar(rec.barFrame)
+				rec.barFrame = nil
+			end
+		end
 	end
 	if isNew or hadBar ~= (rec.barFrame ~= nil) or hadIcon ~= (rec.iconFrame ~= nil) then
 		self._layoutDirty = true
@@ -536,6 +574,14 @@ function M:Tick()
 	if self._testTicker then return end
 	if self.UpdatePrivateAuraFrames then
 		self:UpdatePrivateAuraFrames(true)
+	end
+	local suppressUntil = self._suppressTimelineUntil
+	if suppressUntil then
+		local now = (GetTime and GetTime()) or 0
+		if now < suppressUntil then
+			return
+		end
+		self._suppressTimelineUntil = nil
 	end
 	local hasTimeline = C_EncounterTimeline
 		and C_EncounterTimeline.GetEventList
