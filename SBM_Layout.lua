@@ -78,17 +78,29 @@ function M:layoutIcons()
 		local row = math.floor(idx / cols)
 		local col = idx % cols
 
-		local x = col * (L.ICON_SIZE + L.ICON_GAP)
-		local y = row * (L.ICON_SIZE + L.ICON_GAP)
-		local point = "TOPLEFT"
-		if L.MIRROR then
-			x = -x
-			point = L.BARS_BELOW and "BOTTOMRIGHT" or "TOPRIGHT"
+		local xDir = 1
+		local yDir = -1
+		if L.ICON_GROW_DIR == "LEFT_DOWN" then
+			xDir = -1
+			yDir = -1
+		elseif L.ICON_GROW_DIR == "LEFT_UP" then
+			xDir = -1
+			yDir = 1
+		elseif L.ICON_GROW_DIR == "RIGHT_DOWN" then
+			xDir = 1
+			yDir = -1
 		else
-			point = L.BARS_BELOW and "BOTTOMLEFT" or "TOPLEFT"
+			xDir = 1
+			yDir = 1
 		end
-		if not L.BARS_BELOW then
-			y = -y
+
+		local x = col * (L.ICON_SIZE + L.ICON_GAP) * xDir
+		local y = row * (L.ICON_SIZE + L.ICON_GAP) * yDir
+		local point
+		if yDir < 0 then
+			point = (xDir < 0) and "TOPRIGHT" or "TOPLEFT"
+		else
+			point = (xDir < 0) and "BOTTOMRIGHT" or "BOTTOMLEFT"
 		end
 
 		local f = rec.iconFrame
@@ -120,7 +132,13 @@ function M:layoutBars()
 	for _, rec in pairs(self.events) do
 		if rec.barFrame then list[#list + 1] = rec end
 	end
-	table.sort(list, sortByRemaining)
+	if L.BAR_SORT_ASC then
+		table.sort(list, sortByRemaining)
+	else
+		table.sort(list, function(a, b)
+			return (a.remaining or 999999) > (b.remaining or 999999)
+		end)
+	end
 
 	local y = 0
 	local maxEndW = 0
@@ -149,22 +167,17 @@ function M:layoutBars()
 			M.applyIndicatorsToBarEnd(f, rec.id)
 		end
 		if f.endIndicatorsFrame then
-			maxEndW = math.max(maxEndW, f.endIndicatorsFrame:GetWidth() or 0)
+			local w = f.endIndicatorsFrame:GetWidth() or 0
+			if w > 1 then
+				maxEndW = math.max(maxEndW, w)
+			end
 		end
 
 		f:ClearAllPoints()
-		if L.BARS_BELOW then
-			if L.MIRROR then
-				f:SetPoint("TOPRIGHT", frames.barsParent, "TOPRIGHT", 0, -y)
-			else
-				f:SetPoint("TOPLEFT", frames.barsParent, "TOPLEFT", 0, -y)
-			end
+		if L.BAR_GROW_DIR == "DOWN" then
+			f:SetPoint("TOPLEFT", frames.barsParent, "TOPLEFT", 0, -y)
 		else
-			if L.MIRROR then
-				f:SetPoint("BOTTOMRIGHT", frames.barsParent, "BOTTOMRIGHT", 0, y)
-			else
-				f:SetPoint("BOTTOMLEFT", frames.barsParent, "BOTTOMLEFT", 0, y)
-			end
+			f:SetPoint("BOTTOMLEFT", frames.barsParent, "BOTTOMLEFT", 0, y)
 		end
 		y = y + L.BAR_HEIGHT + L.GAP
 	end
@@ -176,37 +189,6 @@ end
 
 function M:LayoutAll()
 	self._layoutDirty = false
-	frames.iconsParent:ClearAllPoints()
-	if L.MIRROR then
-		if L.BARS_BELOW then
-			frames.iconsParent:SetPoint("BOTTOMRIGHT", frames.anchor, "CENTER", 0, 0)
-		else
-			frames.iconsParent:SetPoint("TOPRIGHT", frames.anchor, "CENTER", 0, 0)
-		end
-	else
-		if L.BARS_BELOW then
-			frames.iconsParent:SetPoint("BOTTOMLEFT", frames.anchor, "CENTER", 0, 0)
-		else
-			frames.iconsParent:SetPoint("TOPLEFT", frames.anchor, "CENTER", 0, 0)
-		end
-	end
-
-	-- bars anchored above/below icon group, using shared GAP
-	frames.barsParent:ClearAllPoints()
-	if L.MIRROR then
-		if L.BARS_BELOW then
-			frames.barsParent:SetPoint("TOPRIGHT", frames.iconsParent, "BOTTOMRIGHT", 0, -L.GAP)
-		else
-			frames.barsParent:SetPoint("BOTTOMRIGHT", frames.iconsParent, "TOPRIGHT", 0, L.GAP)
-		end
-	else
-		if L.BARS_BELOW then
-			frames.barsParent:SetPoint("TOPLEFT", frames.iconsParent, "BOTTOMLEFT", 0, -L.GAP)
-		else
-			frames.barsParent:SetPoint("BOTTOMLEFT", frames.iconsParent, "TOPLEFT", 0, L.GAP)
-		end
-	end
-
 	self:layoutIcons()
 	self:layoutBars()
 end

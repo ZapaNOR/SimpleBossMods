@@ -444,18 +444,19 @@ ef:SetScript("OnEvent", function(_, event, ...)
 			M:SetupPrivateAuraSoundWatcher()
 		end
 
-		M:SetPosition(SimpleBossModsDB.pos.x or 0, SimpleBossModsDB.pos.y or 0)
 		M:ApplyGeneralConfig(
-			SimpleBossModsDB.pos.x or 0,
-			SimpleBossModsDB.pos.y or 0,
 			SimpleBossModsDB.cfg.general.gap or 6,
-			SimpleBossModsDB.cfg.general.mirror,
-			SimpleBossModsDB.cfg.general.barsBelow,
 			SimpleBossModsDB.cfg.general.autoInsertKeystone
 		)
 		M:ApplyIconConfig(SimpleBossModsDB.cfg.icons.size, SimpleBossModsDB.cfg.icons.fontSize, SimpleBossModsDB.cfg.icons.borderThickness)
 		M:ApplyBarConfig(SimpleBossModsDB.cfg.bars.width, SimpleBossModsDB.cfg.bars.height, SimpleBossModsDB.cfg.bars.fontSize, SimpleBossModsDB.cfg.bars.borderThickness)
 		M:ApplyIndicatorConfig(SimpleBossModsDB.cfg.indicators.iconSize or 0, SimpleBossModsDB.cfg.indicators.barSize or 0)
+		if M.UpdateIconsAnchorPosition then
+			M:UpdateIconsAnchorPosition()
+		end
+		if M.UpdateBarsAnchorPosition then
+			M:UpdateBarsAnchorPosition()
+		end
 		if M.ApplyPrivateAuraConfig then
 			local pc = SimpleBossModsDB.cfg.privateAuras
 			M:ApplyPrivateAuraConfig(pc.size, pc.gap, pc.growDirection, pc.x, pc.y, pc.sound)

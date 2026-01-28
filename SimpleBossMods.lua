@@ -74,12 +74,9 @@ function M.NormalizeSoundChannel(channel)
 end
 
 M.Defaults = M.Defaults or {
-	pos = { x = 500, y = 50 },
 	cfg = {
 		general = {
 			gap = 8,
-			mirror = false,
-			barsBelow = false,
 			autoInsertKeystone = false,
 			thresholdToBar = C.THRESHOLD_TO_BAR,
 			font = "SBM Expressway",
@@ -93,6 +90,13 @@ M.Defaults = M.Defaults or {
 			gap = 8,
 			perRow = C.ICONS_PER_ROW,
 			limit = 0,
+			anchorFrom = "TOPLEFT",
+			anchorTo = "CENTER",
+			anchorParent = "NONE",
+			customParent = "",
+			x = 300,
+			y = 0,
+			growDirection = "RIGHT_DOWN",
 		},
 		bars = {
 			width = 352,
@@ -100,8 +104,18 @@ M.Defaults = M.Defaults or {
 			fontSize = 16,
 			borderThickness = 2,
 			swapIconSide = false,
+			swapIndicatorSide = false,
 			hideIcon = false,
 			texture = "SBM Flat",
+			anchorFrom = "BOTTOMLEFT",
+			anchorTo = "TOPLEFT",
+			anchorParent = "SimpleBossMods_Icons",
+			customParent = "",
+			x = 0,
+			y = 8,
+			growDirection = "UP",
+			sortAscending = true,
+			fillDirection = "LEFT",
 			color = {
 				r = C.BAR_FG_R,
 				g = C.BAR_FG_G,
@@ -132,11 +146,11 @@ M.Defaults = M.Defaults or {
 		},
 		combatTimer = {
 			enabled = false,
-			x = -80,
+			x = 0,
 			y = 0,
-			anchorFrom = "LEFT",
-			anchorTo = "RIGHT",
-			anchorParent = "SimpleBossMods_Anchor",
+			anchorFrom = "TOPLEFT",
+			anchorTo = "BOTTOMLEFT",
+			anchorParent = "SimpleBossMods_PrivateAuras",
 			customParent = "",
 			font = "SBM Expressway",
 			fontSize = 18,
@@ -149,24 +163,15 @@ M.Defaults = M.Defaults or {
 
 function M:EnsureDefaults()
 	SimpleBossModsDB = SimpleBossModsDB or {}
-	SimpleBossModsDB.pos = SimpleBossModsDB.pos or { x = M.Defaults.pos.x, y = M.Defaults.pos.y }
 	SimpleBossModsDB.cfg = SimpleBossModsDB.cfg or {}
 	SimpleBossModsDB.manualTimers = SimpleBossModsDB.manualTimers or {}
 
 	local cfg = SimpleBossModsDB.cfg
 	cfg.general = cfg.general or {
 		gap = M.Defaults.cfg.general.gap,
-		mirror = M.Defaults.cfg.general.mirror,
-		barsBelow = M.Defaults.cfg.general.barsBelow,
 		autoInsertKeystone = M.Defaults.cfg.general.autoInsertKeystone,
 		thresholdToBar = M.Defaults.cfg.general.thresholdToBar,
 	}
-	if cfg.general.mirror == nil then
-		cfg.general.mirror = M.Defaults.cfg.general.mirror
-	end
-	if cfg.general.barsBelow == nil then
-		cfg.general.barsBelow = M.Defaults.cfg.general.barsBelow
-	end
 	if cfg.general.autoInsertKeystone == nil then
 		cfg.general.autoInsertKeystone = M.Defaults.cfg.general.autoInsertKeystone
 	end
@@ -184,6 +189,13 @@ function M:EnsureDefaults()
 		gap = M.Defaults.cfg.icons.gap,
 		perRow = M.Defaults.cfg.icons.perRow,
 		limit = M.Defaults.cfg.icons.limit,
+		anchorFrom = M.Defaults.cfg.icons.anchorFrom,
+		anchorTo = M.Defaults.cfg.icons.anchorTo,
+		anchorParent = M.Defaults.cfg.icons.anchorParent,
+		customParent = M.Defaults.cfg.icons.customParent,
+		x = M.Defaults.cfg.icons.x,
+		y = M.Defaults.cfg.icons.y,
+		growDirection = M.Defaults.cfg.icons.growDirection,
 	}
 	if cfg.icons.enabled == nil then
 		cfg.icons.enabled = M.Defaults.cfg.icons.enabled
@@ -197,8 +209,45 @@ function M:EnsureDefaults()
 	if cfg.icons.limit == nil then
 		cfg.icons.limit = M.Defaults.cfg.icons.limit
 	end
+	if cfg.icons.anchorFrom == nil then
+		cfg.icons.anchorFrom = M.Defaults.cfg.icons.anchorFrom
+	end
+	if cfg.icons.anchorTo == nil then
+		cfg.icons.anchorTo = M.Defaults.cfg.icons.anchorTo
+	end
+	if cfg.icons.anchorParent == nil then
+		cfg.icons.anchorParent = M.Defaults.cfg.icons.anchorParent
+	end
+	if cfg.icons.customParent == nil then
+		cfg.icons.customParent = M.Defaults.cfg.icons.customParent
+	end
+	if cfg.icons.x == nil then
+		cfg.icons.x = M.Defaults.cfg.icons.x
+	end
+	if cfg.icons.y == nil then
+		cfg.icons.y = M.Defaults.cfg.icons.y
+	end
+	if cfg.icons.growDirection == nil then
+		cfg.icons.growDirection = M.Defaults.cfg.icons.growDirection
+	end
 	if cfg.icons.font == nil then
 		cfg.icons.font = cfg.general.font or M.Defaults.cfg.icons.font
+	end
+	do
+		local dir = cfg.icons.growDirection
+		if type(dir) ~= "string" then
+			dir = M.Defaults.cfg.icons.growDirection
+		end
+		dir = dir:upper():gsub("%s+", "_")
+		if dir == "BOTTOM_DOWN" then
+			dir = "LEFT_DOWN"
+		elseif dir == "BOTTOM_UP" then
+			dir = "LEFT_UP"
+		end
+		if dir ~= "LEFT_DOWN" and dir ~= "LEFT_UP" and dir ~= "RIGHT_DOWN" and dir ~= "RIGHT_UP" then
+			dir = M.Defaults.cfg.icons.growDirection
+		end
+		cfg.icons.growDirection = dir
 	end
 	cfg.bars = cfg.bars or {
 		width = M.Defaults.cfg.bars.width,
@@ -206,13 +255,53 @@ function M:EnsureDefaults()
 		fontSize = M.Defaults.cfg.bars.fontSize,
 		borderThickness = M.Defaults.cfg.bars.borderThickness,
 		swapIconSide = M.Defaults.cfg.bars.swapIconSide,
+		swapIndicatorSide = M.Defaults.cfg.bars.swapIndicatorSide,
 		hideIcon = M.Defaults.cfg.bars.hideIcon,
+		anchorFrom = M.Defaults.cfg.bars.anchorFrom,
+		anchorTo = M.Defaults.cfg.bars.anchorTo,
+		anchorParent = M.Defaults.cfg.bars.anchorParent,
+		customParent = M.Defaults.cfg.bars.customParent,
+		x = M.Defaults.cfg.bars.x,
+		y = M.Defaults.cfg.bars.y,
+		growDirection = M.Defaults.cfg.bars.growDirection,
+		sortAscending = M.Defaults.cfg.bars.sortAscending,
+		fillDirection = M.Defaults.cfg.bars.fillDirection,
 	}
 	if cfg.bars.swapIconSide == nil then
 		cfg.bars.swapIconSide = M.Defaults.cfg.bars.swapIconSide
 	end
+	if cfg.bars.swapIndicatorSide == nil then
+		cfg.bars.swapIndicatorSide = M.Defaults.cfg.bars.swapIndicatorSide
+	end
 	if cfg.bars.hideIcon == nil then
 		cfg.bars.hideIcon = M.Defaults.cfg.bars.hideIcon
+	end
+	if cfg.bars.anchorFrom == nil then
+		cfg.bars.anchorFrom = M.Defaults.cfg.bars.anchorFrom
+	end
+	if cfg.bars.anchorTo == nil then
+		cfg.bars.anchorTo = M.Defaults.cfg.bars.anchorTo
+	end
+	if cfg.bars.anchorParent == nil then
+		cfg.bars.anchorParent = M.Defaults.cfg.bars.anchorParent
+	end
+	if cfg.bars.customParent == nil then
+		cfg.bars.customParent = M.Defaults.cfg.bars.customParent
+	end
+	if cfg.bars.x == nil then
+		cfg.bars.x = M.Defaults.cfg.bars.x
+	end
+	if cfg.bars.y == nil then
+		cfg.bars.y = M.Defaults.cfg.bars.y
+	end
+	if cfg.bars.growDirection == nil then
+		cfg.bars.growDirection = M.Defaults.cfg.bars.growDirection
+	end
+	if cfg.bars.sortAscending == nil then
+		cfg.bars.sortAscending = M.Defaults.cfg.bars.sortAscending
+	end
+	if cfg.bars.fillDirection == nil then
+		cfg.bars.fillDirection = M.Defaults.cfg.bars.fillDirection
 	end
 	if cfg.bars.texture == nil then
 		cfg.bars.texture = M.Defaults.cfg.bars.texture
@@ -352,6 +441,17 @@ function M:EnsureDefaults()
 	if cfg.combatTimer.y == nil then
 		cfg.combatTimer.y = M.Defaults.cfg.combatTimer.y
 	end
+	if cfg.combatTimer.anchorParent == "SimpleBossMods_Anchor"
+		and cfg.combatTimer.anchorFrom == "LEFT"
+		and cfg.combatTimer.anchorTo == "RIGHT"
+		and cfg.combatTimer.x == -80
+		and cfg.combatTimer.y == 0 then
+		cfg.combatTimer.anchorParent = "SimpleBossMods_PrivateAuras"
+		cfg.combatTimer.anchorFrom = "TOPLEFT"
+		cfg.combatTimer.anchorTo = "BOTTOMLEFT"
+		cfg.combatTimer.x = 0
+		cfg.combatTimer.y = 0
+	end
 	cfg.combatTimer.color = cfg.combatTimer.color or {
 		r = M.Defaults.cfg.combatTimer.color.r,
 		g = M.Defaults.cfg.combatTimer.color.g,
@@ -414,8 +514,6 @@ function M.SyncLiveConfig()
 	L.PRIVATE_AURA_ENABLED = pc.enabled ~= false
 
 	L.GAP = tonumber(gc.gap) or 6
-	L.MIRROR = gc.mirror and true or false
-	L.BARS_BELOW = gc.barsBelow and true or false
 	L.AUTO_INSERT_KEYSTONE = gc.autoInsertKeystone and true or false
 	L.THRESHOLD_TO_BAR = U.clamp(tonumber(gc.thresholdToBar) or C.THRESHOLD_TO_BAR, 0.1, 600)
 
@@ -426,6 +524,44 @@ function M.SyncLiveConfig()
 	L.ICON_GAP = U.clamp(U.round(tonumber(ic.gap) or M.Defaults.cfg.icons.gap), -50, 50)
 	L.ICONS_PER_ROW = U.clamp(U.round(tonumber(ic.perRow) or C.ICONS_PER_ROW), 1, 20)
 	L.ICONS_LIMIT = U.clamp(U.round(tonumber(ic.limit) or 0), 0, 200)
+	do
+		local dir = ic.growDirection
+		if type(dir) ~= "string" then
+			dir = M.Defaults.cfg.icons.growDirection
+		end
+		dir = dir:upper():gsub("%s+", "_")
+		if dir == "BOTTOM_DOWN" then
+			dir = "LEFT_DOWN"
+		elseif dir == "BOTTOM_UP" then
+			dir = "LEFT_UP"
+		end
+		if dir ~= "LEFT_DOWN" and dir ~= "LEFT_UP" and dir ~= "RIGHT_DOWN" and dir ~= "RIGHT_UP" then
+			dir = M.Defaults.cfg.icons.growDirection
+		end
+		L.ICON_GROW_DIR = dir
+	end
+	L.ICON_ANCHOR_FROM = normalizeAnchorPoint(ic.anchorFrom)
+	L.ICON_ANCHOR_TO = normalizeAnchorPoint(ic.anchorTo)
+	L.ICON_ANCHOR_PARENT = (type(ic.anchorParent) == "string" and ic.anchorParent ~= "") and ic.anchorParent or "NONE"
+	do
+		local customParent = nil
+		if type(ic.customParent) == "string" then
+			customParent = ic.customParent:gsub("^%s+", ""):gsub("%s+$", "")
+			if customParent == "" then
+				customParent = nil
+			end
+		end
+		L.ICON_ANCHOR_CUSTOM_PARENT = customParent
+		if customParent then
+			L.ICON_PARENT_NAME = customParent
+		elseif L.ICON_ANCHOR_PARENT ~= "NONE" then
+			L.ICON_PARENT_NAME = L.ICON_ANCHOR_PARENT
+		else
+			L.ICON_PARENT_NAME = nil
+		end
+	end
+	L.ICON_ANCHOR_X = tonumber(ic.x) or 0
+	L.ICON_ANCHOR_Y = tonumber(ic.y) or 0
 	L.ICON_FONT_KEY = ic.font or M.Defaults.cfg.icons.font
 	L.ICON_FONT_PATH = C.FONT_PATH
 	if LSM then
@@ -437,12 +573,66 @@ function M.SyncLiveConfig()
 	L.BAR_FONT_SIZE = bc.fontSize
 	L.BAR_BORDER_THICKNESS = bc.borderThickness
 	L.BAR_ICON_SWAP = bc.swapIconSide and true or false
+	L.BAR_INDICATOR_SWAP = bc.swapIndicatorSide and true or false
 	L.BAR_ICON_HIDDEN = bc.hideIcon and true or false
+	do
+		local dir = bc.growDirection
+		if type(dir) ~= "string" then
+			dir = M.Defaults.cfg.bars.growDirection
+		end
+		dir = dir:upper()
+		if dir ~= "UP" and dir ~= "DOWN" then
+			dir = M.Defaults.cfg.bars.growDirection
+		end
+		L.BAR_GROW_DIR = dir
+	end
+	L.BAR_SORT_ASC = bc.sortAscending and true or false
+	do
+		local fill = bc.fillDirection
+		if type(fill) ~= "string" then
+			fill = M.Defaults.cfg.bars.fillDirection
+		end
+		fill = fill:upper()
+		if fill ~= "LEFT" and fill ~= "RIGHT" then
+			fill = M.Defaults.cfg.bars.fillDirection
+		end
+		L.BAR_FILL_DIR = fill
+	end
+	L.BAR_FILL_REVERSE = (L.BAR_FILL_DIR == "RIGHT")
+	do
+		local indicatorOnLeft = L.BAR_FILL_REVERSE
+		if L.BAR_INDICATOR_SWAP then
+			indicatorOnLeft = not indicatorOnLeft
+		end
+		L.BAR_INDICATOR_ON_LEFT = indicatorOnLeft
+	end
 	L.FONT_KEY = gc.font or M.Defaults.cfg.general.font
 	L.FONT_PATH = C.FONT_PATH
 	if LSM then
 		L.FONT_PATH = LSM:Fetch("font", L.FONT_KEY) or C.FONT_PATH
 	end
+	L.BAR_ANCHOR_FROM = normalizeAnchorPoint(bc.anchorFrom)
+	L.BAR_ANCHOR_TO = normalizeAnchorPoint(bc.anchorTo)
+	L.BAR_ANCHOR_PARENT = (type(bc.anchorParent) == "string" and bc.anchorParent ~= "") and bc.anchorParent or "NONE"
+	do
+		local customParent = nil
+		if type(bc.customParent) == "string" then
+			customParent = bc.customParent:gsub("^%s+", ""):gsub("%s+$", "")
+			if customParent == "" then
+				customParent = nil
+			end
+		end
+		L.BAR_ANCHOR_CUSTOM_PARENT = customParent
+		if customParent then
+			L.BAR_PARENT_NAME = customParent
+		elseif L.BAR_ANCHOR_PARENT ~= "NONE" then
+			L.BAR_PARENT_NAME = L.BAR_ANCHOR_PARENT
+		else
+			L.BAR_PARENT_NAME = nil
+		end
+	end
+	L.BAR_ANCHOR_X = tonumber(bc.x) or 0
+	L.BAR_ANCHOR_Y = tonumber(bc.y) or 0
 	L.BAR_TEX_KEY = bc.texture or M.Defaults.cfg.bars.texture
 	L.BAR_TEX = C.BAR_TEX_DEFAULT
 	if LSM then

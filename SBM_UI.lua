@@ -14,42 +14,11 @@ local U = M.Util
 local frames = M.frames or {}
 M.frames = frames
 
-local anchor = CreateFrame("Frame", ADDON_NAME .. "_Anchor", UIParent)
-anchor:SetSize(1, 1)
-anchor:SetPoint("CENTER", UIParent, "CENTER", SimpleBossModsDB.pos.x or 0, (SimpleBossModsDB.pos.y or 0) + C.GLOBAL_Y_NUDGE)
-frames.anchor = anchor
-
 local iconsParent = CreateFrame("Frame", ADDON_NAME .. "_Icons", UIParent)
-if L.MIRROR then
-	if L.BARS_BELOW then
-		iconsParent:SetPoint("BOTTOMRIGHT", anchor, "CENTER", 0, 0)
-	else
-		iconsParent:SetPoint("TOPRIGHT", anchor, "CENTER", 0, 0)
-	end
-else
-	if L.BARS_BELOW then
-		iconsParent:SetPoint("BOTTOMLEFT", anchor, "CENTER", 0, 0)
-	else
-		iconsParent:SetPoint("TOPLEFT", anchor, "CENTER", 0, 0)
-	end
-end
 iconsParent:SetSize(1, 1)
 frames.iconsParent = iconsParent
 
 local barsParent = CreateFrame("Frame", ADDON_NAME .. "_Bars", UIParent)
-if L.MIRROR then
-	if L.BARS_BELOW then
-		barsParent:SetPoint("TOPRIGHT", iconsParent, "BOTTOMRIGHT", 0, -L.GAP)
-	else
-		barsParent:SetPoint("BOTTOMRIGHT", iconsParent, "TOPRIGHT", 0, L.GAP)
-	end
-else
-	if L.BARS_BELOW then
-		barsParent:SetPoint("TOPLEFT", iconsParent, "BOTTOMLEFT", 0, -L.GAP)
-	else
-		barsParent:SetPoint("BOTTOMLEFT", iconsParent, "TOPLEFT", 0, L.GAP)
-	end
-end
 barsParent:SetSize(1, 1)
 frames.barsParent = barsParent
 
@@ -58,6 +27,40 @@ privateAurasAnchor:SetSize(1, 1)
 frames.privateAurasAnchor = privateAurasAnchor
 
 local getPrivateAuraLayout
+
+function M:UpdateIconsAnchorPosition()
+	if not iconsParent then return end
+	iconsParent:ClearAllPoints()
+	local parent = UIParent
+	local parentName = L.ICON_PARENT_NAME
+	if type(parentName) == "string" and parentName ~= "" then
+		parent = _G[parentName] or UIParent
+	end
+	iconsParent:SetPoint(
+		L.ICON_ANCHOR_FROM or "TOPLEFT",
+		parent,
+		L.ICON_ANCHOR_TO or "CENTER",
+		L.ICON_ANCHOR_X or 0,
+		(L.ICON_ANCHOR_Y or 0) + C.GLOBAL_Y_NUDGE
+	)
+end
+
+function M:UpdateBarsAnchorPosition()
+	if not barsParent then return end
+	barsParent:ClearAllPoints()
+	local parent = UIParent
+	local parentName = L.BAR_PARENT_NAME
+	if type(parentName) == "string" and parentName ~= "" then
+		parent = _G[parentName] or UIParent
+	end
+	barsParent:SetPoint(
+		L.BAR_ANCHOR_FROM or "BOTTOMLEFT",
+		parent,
+		L.BAR_ANCHOR_TO or "TOPLEFT",
+		L.BAR_ANCHOR_X or 0,
+		(L.BAR_ANCHOR_Y or 0) + C.GLOBAL_Y_NUDGE
+	)
+end
 
 function M:UpdatePrivateAuraAnchorPosition()
 	if not privateAurasAnchor then return end
@@ -138,17 +141,9 @@ getPrivateAuraLayout = function()
 	return size, step, maxCount, width, height, startX, startY, stepX, stepY
 end
 
+M:UpdateIconsAnchorPosition()
+M:UpdateBarsAnchorPosition()
 M:UpdatePrivateAuraAnchorPosition()
-
-function M:SetPosition(x, y)
-	x = tonumber(x) or 0
-	y = tonumber(y) or 0
-	SimpleBossModsDB.pos.x = x
-	SimpleBossModsDB.pos.y = y
-
-	anchor:ClearAllPoints()
-	anchor:SetPoint("CENTER", UIParent, "CENTER", x, y + C.GLOBAL_Y_NUDGE)
-end
 
 local function buildPrivateAuraAnchorInfo(auraIndex, offsetX, offsetY)
 	local size = L.PRIVATE_AURA_SIZE
@@ -889,7 +884,7 @@ local function layoutIconIndicators(iconFrame, textures)
 	-- bottom-right inside icon, 2x3 grid (usually you won't have all)
 	local s = U.iconIndicatorSize()
 	local gap = U.clamp(math.floor(s * 0.12 + 0.5) + 1, 2, 4)
-	local mirror = L.MIRROR
+	local mirror = L.ICON_GROW_DIR == "LEFT_DOWN" or L.ICON_GROW_DIR == "LEFT_UP"
 
 	-- Place as:
 	-- [4][5][6]
@@ -919,7 +914,13 @@ local function layoutBarIndicators(barFrame, textures)
 	local size = U.barIndicatorSize()
 	local gap = 3
 	local totalW = C.INDICATOR_MAX * size + (C.INDICATOR_MAX - 1) * gap
-	local mirror = L.MIRROR
+	local mirror = L.BAR_INDICATOR_ON_LEFT
+	if mirror == nil then
+		mirror = L.BAR_FILL_REVERSE
+		if L.BAR_INDICATOR_SWAP then
+			mirror = not mirror
+		end
+	end
 	barFrame.endIndicatorsFrame:SetWidth(totalW)
 
 	for i = 1, C.INDICATOR_MAX do
@@ -996,7 +997,7 @@ M.applyIndicatorsToBarEnd = applyIndicatorsToBarEnd
 local function applyBarMirror(f)
 	if not f then return end
 
-	local iconOnRight = L.MIRROR
+	local iconOnRight = false
 	if L.BAR_ICON_SWAP then
 		iconOnRight = not iconOnRight
 	end
@@ -1045,14 +1046,21 @@ local function applyBarMirror(f)
 	f.sb:SetPoint("BOTTOM", f, "BOTTOM", 0, 0)
 
 	if f.sb.SetReverseFill then
-		f.sb:SetReverseFill(L.MIRROR)
+		f.sb:SetReverseFill(L.BAR_FILL_REVERSE)
 	elseif f.sb.SetReverse then
-		f.sb:SetReverse(L.MIRROR)
+		f.sb:SetReverse(L.BAR_FILL_REVERSE)
 	end
 
 	if f.endIndicatorsFrame then
+		local indicatorOnLeft = L.BAR_INDICATOR_ON_LEFT
+		if indicatorOnLeft == nil then
+			indicatorOnLeft = L.BAR_FILL_REVERSE
+			if L.BAR_INDICATOR_SWAP then
+				indicatorOnLeft = not indicatorOnLeft
+			end
+		end
 		f.endIndicatorsFrame:ClearAllPoints()
-		if L.MIRROR then
+		if indicatorOnLeft then
 			f.endIndicatorsFrame:SetPoint("RIGHT", f, "LEFT", -C.BAR_END_INDICATOR_GAP_X, 0)
 		else
 			f.endIndicatorsFrame:SetPoint("LEFT", f, "RIGHT", C.BAR_END_INDICATOR_GAP_X, 0)
@@ -1063,7 +1071,7 @@ local function applyBarMirror(f)
 
 	if f.txt then
 		f.txt:ClearAllPoints()
-		if L.MIRROR then
+		if L.BAR_FILL_REVERSE then
 			f.txt:SetPoint("RIGHT", f.sb, "RIGHT", -6, 0)
 			f.txt:SetJustifyH("RIGHT")
 		else
@@ -1073,7 +1081,7 @@ local function applyBarMirror(f)
 	end
 	if f.rt then
 		f.rt:ClearAllPoints()
-		if L.MIRROR then
+		if L.BAR_FILL_REVERSE then
 			f.rt:SetPoint("LEFT", f.sb, "LEFT", 6, 0)
 			f.rt:SetJustifyH("LEFT")
 		else

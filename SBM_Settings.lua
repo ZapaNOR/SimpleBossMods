@@ -25,7 +25,6 @@ local ANCHOR_POINT_OPTIONS = {
 
 local ANCHOR_PARENT_OPTIONS = {
 	{ label = "UIParent", value = "NONE" },
-	{ label = "SBM: Main Anchor", value = "SimpleBossMods_Anchor" },
 	{ label = "SBM: Icons", value = "SimpleBossMods_Icons" },
 	{ label = "SBM: Bars", value = "SimpleBossMods_Bars" },
 	{ label = "SBM: Private Auras", value = "SimpleBossMods_PrivateAuras" },
@@ -145,20 +144,8 @@ end
 -- =========================
 -- Apply config live
 -- =========================
-function M:ApplyGeneralConfig(x, y, gap, mirror, barsBelow, autoInsertKeystone)
-	SimpleBossModsDB.pos.x = tonumber(x) or (SimpleBossModsDB.pos.x or 0)
-	SimpleBossModsDB.pos.y = tonumber(y) or (SimpleBossModsDB.pos.y or 0)
+function M:ApplyGeneralConfig(gap, autoInsertKeystone)
 	SimpleBossModsDB.cfg.general.gap = tonumber(gap) or (SimpleBossModsDB.cfg.general.gap or 6)
-	if mirror == nil then
-		SimpleBossModsDB.cfg.general.mirror = SimpleBossModsDB.cfg.general.mirror and true or false
-	else
-		SimpleBossModsDB.cfg.general.mirror = mirror and true or false
-	end
-	if barsBelow == nil then
-		SimpleBossModsDB.cfg.general.barsBelow = SimpleBossModsDB.cfg.general.barsBelow and true or false
-	else
-		SimpleBossModsDB.cfg.general.barsBelow = barsBelow and true or false
-	end
 	if autoInsertKeystone == nil then
 		SimpleBossModsDB.cfg.general.autoInsertKeystone = SimpleBossModsDB.cfg.general.autoInsertKeystone and true or false
 	else
@@ -169,7 +156,6 @@ function M:ApplyGeneralConfig(x, y, gap, mirror, barsBelow, autoInsertKeystone)
 	if M.SetupKeystoneAutoInsert then
 		M:SetupKeystoneAutoInsert()
 	end
-	M:SetPosition(SimpleBossModsDB.pos.x, SimpleBossModsDB.pos.y)
 	M:LayoutAll()
 end
 
@@ -237,6 +223,172 @@ function M:ApplyIconLayoutConfig(gap, perRow, limit)
 	self:LayoutAll()
 end
 
+function M:ApplyIconGrowDirection(dir)
+	local ic = SimpleBossModsDB.cfg.icons
+	if type(dir) == "string" then
+		local v = dir:upper():gsub("%s+", "_")
+		if v == "BOTTOM_DOWN" then
+			v = "LEFT_DOWN"
+		elseif v == "BOTTOM_UP" then
+			v = "LEFT_UP"
+		end
+		if v == "LEFT_DOWN" or v == "LEFT_UP" or v == "RIGHT_DOWN" or v == "RIGHT_UP" then
+			ic.growDirection = v
+		end
+	end
+	M.SyncLiveConfig()
+	self:LayoutAll()
+end
+
+function M:ApplyIconAnchorFrom(point)
+	local ic = SimpleBossModsDB.cfg.icons
+	if type(point) == "string" and point ~= "" then
+		ic.anchorFrom = point
+	end
+	M.SyncLiveConfig()
+	if M.UpdateIconsAnchorPosition then
+		M:UpdateIconsAnchorPosition()
+	end
+end
+
+function M:ApplyIconAnchorTo(point)
+	local ic = SimpleBossModsDB.cfg.icons
+	if type(point) == "string" and point ~= "" then
+		ic.anchorTo = point
+	end
+	M.SyncLiveConfig()
+	if M.UpdateIconsAnchorPosition then
+		M:UpdateIconsAnchorPosition()
+	end
+end
+
+function M:ApplyIconAnchorParent(parentName)
+	local ic = SimpleBossModsDB.cfg.icons
+	if type(parentName) == "string" and parentName ~= "" then
+		ic.anchorParent = parentName
+	end
+	ic.customParent = ""
+	M.SyncLiveConfig()
+	if M.UpdateIconsAnchorPosition then
+		M:UpdateIconsAnchorPosition()
+	end
+end
+
+function M:ApplyIconCustomParent(name)
+	local ic = SimpleBossModsDB.cfg.icons
+	if type(name) ~= "string" then
+		name = ""
+	end
+	name = name:gsub("^%s+", ""):gsub("%s+$", "")
+	ic.customParent = name
+	M.SyncLiveConfig()
+	if M.UpdateIconsAnchorPosition then
+		M:UpdateIconsAnchorPosition()
+	end
+end
+
+function M:ApplyIconAnchorPosition(x, y)
+	local ic = SimpleBossModsDB.cfg.icons
+	ic.x = tonumber(x) or ic.x or 0
+	ic.y = tonumber(y) or ic.y or 0
+	M.SyncLiveConfig()
+	if M.UpdateIconsAnchorPosition then
+		M:UpdateIconsAnchorPosition()
+	end
+end
+
+function M:ApplyBarGrowDirection(dir)
+	local bc = SimpleBossModsDB.cfg.bars
+	if type(dir) == "string" then
+		local v = dir:upper()
+		if v == "UP" or v == "DOWN" then
+			bc.growDirection = v
+		end
+	end
+	M.SyncLiveConfig()
+	self:LayoutAll()
+end
+
+function M:ApplyBarSortOrder(order)
+	local bc = SimpleBossModsDB.cfg.bars
+	if order == "ASC" then
+		bc.sortAscending = true
+	elseif order == "DESC" then
+		bc.sortAscending = false
+	end
+	M.SyncLiveConfig()
+	self:LayoutAll()
+end
+
+function M:ApplyBarFillDirection(dir)
+	local bc = SimpleBossModsDB.cfg.bars
+	if type(dir) == "string" then
+		local v = dir:upper()
+		if v == "LEFT" or v == "RIGHT" then
+			bc.fillDirection = v
+		end
+	end
+	M.SyncLiveConfig()
+	refreshBarMirrorAndIndicators()
+end
+
+function M:ApplyBarAnchorFrom(point)
+	local bc = SimpleBossModsDB.cfg.bars
+	if type(point) == "string" and point ~= "" then
+		bc.anchorFrom = point
+	end
+	M.SyncLiveConfig()
+	if M.UpdateBarsAnchorPosition then
+		M:UpdateBarsAnchorPosition()
+	end
+end
+
+function M:ApplyBarAnchorTo(point)
+	local bc = SimpleBossModsDB.cfg.bars
+	if type(point) == "string" and point ~= "" then
+		bc.anchorTo = point
+	end
+	M.SyncLiveConfig()
+	if M.UpdateBarsAnchorPosition then
+		M:UpdateBarsAnchorPosition()
+	end
+end
+
+function M:ApplyBarAnchorParent(parentName)
+	local bc = SimpleBossModsDB.cfg.bars
+	if type(parentName) == "string" and parentName ~= "" then
+		bc.anchorParent = parentName
+	end
+	bc.customParent = ""
+	M.SyncLiveConfig()
+	if M.UpdateBarsAnchorPosition then
+		M:UpdateBarsAnchorPosition()
+	end
+end
+
+function M:ApplyBarCustomParent(name)
+	local bc = SimpleBossModsDB.cfg.bars
+	if type(name) ~= "string" then
+		name = ""
+	end
+	name = name:gsub("^%s+", ""):gsub("%s+$", "")
+	bc.customParent = name
+	M.SyncLiveConfig()
+	if M.UpdateBarsAnchorPosition then
+		M:UpdateBarsAnchorPosition()
+	end
+end
+
+function M:ApplyBarAnchorPosition(x, y)
+	local bc = SimpleBossModsDB.cfg.bars
+	bc.x = tonumber(x) or bc.x or 0
+	bc.y = tonumber(y) or bc.y or 0
+	M.SyncLiveConfig()
+	if M.UpdateBarsAnchorPosition then
+		M:UpdateBarsAnchorPosition()
+	end
+end
+
 function M:ApplyBarConfig(width, height, fontSize, borderThickness)
 	local bc = SimpleBossModsDB.cfg.bars
 	bc.width = U.clamp(U.round(width), 120, 800)
@@ -261,6 +413,14 @@ end
 function M:ApplyBarIconSideConfig(swapIconSide)
 	local bc = SimpleBossModsDB.cfg.bars
 	bc.swapIconSide = swapIconSide and true or false
+
+	M.SyncLiveConfig()
+	refreshBarMirrorAndIndicators()
+end
+
+function M:ApplyBarIndicatorSideConfig(swapIndicatorSide)
+	local bc = SimpleBossModsDB.cfg.bars
+	bc.swapIndicatorSide = swapIndicatorSide and true or false
 
 	M.SyncLiveConfig()
 	refreshBarMirrorAndIndicators()
@@ -683,7 +843,7 @@ function M:OpenSettings()
 			frame:Raise()
 		end
 		if self._settingsTabGroup and self._settingsTabStatus then
-			self._settingsTabGroup:SelectTab(self._settingsTabStatus.selected or "General")
+			self._settingsTabGroup:SelectTab(self._settingsTabStatus.selected or "Icons")
 		elseif frame._refreshAll then
 			frame._refreshAll()
 		end
@@ -1232,10 +1392,6 @@ function M:CreateLegacySettingsWindow()
 		return swatch
 	end
 
-	local function AddSpacer(section, pixels)
-		return CreateRow(section, pixels or 10)
-	end
-
 	local function AddButton(section, label, onClick)
 		local row = CreateRow(section, ROW_H)
 		local btn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
@@ -1253,11 +1409,10 @@ function M:CreateLegacySettingsWindow()
 		for _, r in ipairs(inputs) do r() end
 	end
 
-	local generalTab = CreateTab(1, "General")
-	local displayTab = CreateTab(2, "Display")
-	local dungeonTab = CreateTab(3, "Dungeon")
-	local combatTab = CreateTab(4, "Combat Timer")
-	local privateTab = CreateTab(5, "Private Auras")
+	local displayTab = CreateTab(1, "Display")
+	local dungeonTab = CreateTab(2, "Dungeon")
+	local combatTab = CreateTab(3, "Combat Timer")
+	local privateTab = CreateTab(4, "Private Auras")
 
 	PanelTemplates_SetNumTabs(panel, #tabs)
 	local bottomBar = CreateFrame("Frame", nil, panel)
@@ -1277,43 +1432,34 @@ function M:CreateLegacySettingsWindow()
 	stopBtn:SetText("Stop Test")
 	stopBtn:SetScript("OnClick", function() M:StopTest() end)
 
-	local generalPosition = CreateSection(generalTab, "Position")
-	AddNumberRow(generalPosition, "X Offset",
-		function() return SimpleBossModsDB.pos.x or 0 end,
-		function(v) M:ApplyGeneralConfig(v, SimpleBossModsDB.pos.y or 0, SimpleBossModsDB.cfg.general.gap or 6, SimpleBossModsDB.cfg.general.mirror, SimpleBossModsDB.cfg.general.barsBelow, SimpleBossModsDB.cfg.general.autoInsertKeystone) end,
-		nil, true
-	)
-
-	AddNumberRow(generalPosition, "Y Offset",
-		function() return SimpleBossModsDB.pos.y or 0 end,
-		function(v) M:ApplyGeneralConfig(SimpleBossModsDB.pos.x or 0, v, SimpleBossModsDB.cfg.general.gap or 6, SimpleBossModsDB.cfg.general.mirror, SimpleBossModsDB.cfg.general.barsBelow, SimpleBossModsDB.cfg.general.autoInsertKeystone) end,
-		nil, true
-	)
-
-	AddNumberRow(generalPosition, "Gap",
-		function() return SimpleBossModsDB.cfg.general.gap or 6 end,
-		function(v) M:ApplyGeneralConfig(SimpleBossModsDB.pos.x or 0, SimpleBossModsDB.pos.y or 0, U.clamp(U.round(v), -30, 30), SimpleBossModsDB.cfg.general.mirror, SimpleBossModsDB.cfg.general.barsBelow, SimpleBossModsDB.cfg.general.autoInsertKeystone) end,
-		"Used for bar spacing and bars-to-icons gap.", false, true
-	)
-
-	local generalBehavior = CreateSection(generalTab, "Behavior")
-	AddCheckRow(generalBehavior, "Mirror Horizontally",
-		function() return SimpleBossModsDB.cfg.general.mirror end,
-		function(v) M:ApplyGeneralConfig(SimpleBossModsDB.pos.x or 0, SimpleBossModsDB.pos.y or 0, SimpleBossModsDB.cfg.general.gap or 6, v, SimpleBossModsDB.cfg.general.barsBelow, SimpleBossModsDB.cfg.general.autoInsertKeystone) end,
-		"Flip layout horizontally for right-side placement."
-	)
-	AddCheckRow(generalBehavior, "Mirror Vertically",
-		function() return SimpleBossModsDB.cfg.general.barsBelow end,
-		function(v) M:ApplyGeneralConfig(SimpleBossModsDB.pos.x or 0, SimpleBossModsDB.pos.y or 0, SimpleBossModsDB.cfg.general.gap or 6, SimpleBossModsDB.cfg.general.mirror, v, SimpleBossModsDB.cfg.general.autoInsertKeystone) end,
-		"Swap vertical order so bars appear below icons."
-	)
-
 	local dungeonSection = CreateSection(dungeonTab, "Mythic+")
 	AddCheckRow(dungeonSection, "Auto Insert Keystone",
 		function() return SimpleBossModsDB.cfg.general.autoInsertKeystone end,
-		function(v) M:ApplyGeneralConfig(SimpleBossModsDB.pos.x or 0, SimpleBossModsDB.pos.y or 0, SimpleBossModsDB.cfg.general.gap or 6, SimpleBossModsDB.cfg.general.mirror, SimpleBossModsDB.cfg.general.barsBelow, v) end,
+		function(v) M:ApplyGeneralConfig(SimpleBossModsDB.cfg.general.gap or 6, v) end,
 		"Automatically inserts your keystone when the Mythic+ socket opens."
 	)
+
+	local iconGrowDirections = {
+		{ label = "Left down", value = "LEFT_DOWN" },
+		{ label = "Left up", value = "LEFT_UP" },
+		{ label = "Right down", value = "RIGHT_DOWN" },
+		{ label = "Right up", value = "RIGHT_UP" },
+	}
+
+	local barGrowDirections = {
+		{ label = "Up", value = "UP" },
+		{ label = "Down", value = "DOWN" },
+	}
+
+	local barSortOptions = {
+		{ label = "Ascending (lowest first)", value = "ASC" },
+		{ label = "Descending (highest first)", value = "DESC" },
+	}
+
+	local barFillOptions = {
+		{ label = "Left", value = "LEFT" },
+		{ label = "Right", value = "RIGHT" },
+	}
 
 	local iconsSection = CreateSection(displayTab, "Icons")
 	AddCheckRow(iconsSection, "Enable Large Icons",
@@ -1353,6 +1499,83 @@ function M:CreateLegacySettingsWindow()
 		function(v) M:ApplyIconConfig(SimpleBossModsDB.cfg.icons.size, SimpleBossModsDB.cfg.icons.fontSize, v) end,
 		"0 disables icon border."
 	)
+	AddDropdownRow(iconsSection, "Grow Direction",
+		iconGrowDirections,
+		function() return SimpleBossModsDB.cfg.icons.growDirection end,
+		function(v) M:ApplyIconGrowDirection(v) end
+	)
+
+	local iconsAnchor = CreateSection(displayTab, "Large Icons Anchor")
+	local iconsAnchorParentOptions = select(1, buildAnchorParentLists(SimpleBossModsDB.cfg.icons.anchorParent))
+	AddDropdownRow(iconsAnchor, "Anchor From",
+		ANCHOR_POINT_OPTIONS,
+		function() return SimpleBossModsDB.cfg.icons.anchorFrom end,
+		function(v) M:ApplyIconAnchorFrom(v) end
+	)
+	AddDropdownRow(iconsAnchor, "Anchor To Parent",
+		iconsAnchorParentOptions,
+		function() return SimpleBossModsDB.cfg.icons.anchorParent end,
+		function(v)
+			M:ApplyIconAnchorParent(v)
+			RefreshAll()
+		end
+	)
+	AddDropdownRow(iconsAnchor, "Anchor To",
+		ANCHOR_POINT_OPTIONS,
+		function() return SimpleBossModsDB.cfg.icons.anchorTo end,
+		function(v) M:ApplyIconAnchorTo(v) end
+	)
+	AddTextRow(iconsAnchor, "Custom Parent (optional)",
+		function() return SimpleBossModsDB.cfg.icons.customParent or "" end,
+		function(v) M:ApplyIconCustomParent(v) end,
+		"Overrides 'Anchor To Parent' when set. Use a global frame name, e.g. UIParent."
+	)
+	AddNumberRow(iconsAnchor, "X Offset",
+		function() return SimpleBossModsDB.cfg.icons.x or 0 end,
+		function(v) M:ApplyIconAnchorPosition(v, SimpleBossModsDB.cfg.icons.y or 0) end,
+		nil, true
+	)
+	AddNumberRow(iconsAnchor, "Y Offset",
+		function() return SimpleBossModsDB.cfg.icons.y or 0 end,
+		function(v) M:ApplyIconAnchorPosition(SimpleBossModsDB.cfg.icons.x or 0, v) end,
+		nil, true
+	)
+
+	local barsAnchor = CreateSection(displayTab, "Bars Anchor")
+	local barsAnchorParentOptions = select(1, buildAnchorParentLists(SimpleBossModsDB.cfg.bars.anchorParent))
+	AddDropdownRow(barsAnchor, "Anchor From",
+		ANCHOR_POINT_OPTIONS,
+		function() return SimpleBossModsDB.cfg.bars.anchorFrom end,
+		function(v) M:ApplyBarAnchorFrom(v) end
+	)
+	AddDropdownRow(barsAnchor, "Anchor To Parent",
+		barsAnchorParentOptions,
+		function() return SimpleBossModsDB.cfg.bars.anchorParent end,
+		function(v)
+			M:ApplyBarAnchorParent(v)
+			RefreshAll()
+		end
+	)
+	AddDropdownRow(barsAnchor, "Anchor To",
+		ANCHOR_POINT_OPTIONS,
+		function() return SimpleBossModsDB.cfg.bars.anchorTo end,
+		function(v) M:ApplyBarAnchorTo(v) end
+	)
+	AddTextRow(barsAnchor, "Custom Parent (optional)",
+		function() return SimpleBossModsDB.cfg.bars.customParent or "" end,
+		function(v) M:ApplyBarCustomParent(v) end,
+		"Overrides 'Anchor To Parent' when set. Use a global frame name, e.g. UIParent."
+	)
+	AddNumberRow(barsAnchor, "X Offset",
+		function() return SimpleBossModsDB.cfg.bars.x or 0 end,
+		function(v) M:ApplyBarAnchorPosition(v, SimpleBossModsDB.cfg.bars.y or 0) end,
+		nil, true
+	)
+	AddNumberRow(barsAnchor, "Y Offset",
+		function() return SimpleBossModsDB.cfg.bars.y or 0 end,
+		function(v) M:ApplyBarAnchorPosition(SimpleBossModsDB.cfg.bars.x or 0, v) end,
+		nil, true
+	)
 
 	local barsSection = CreateSection(displayTab, "Bars")
 	AddNumberRow(barsSection, "Width",
@@ -1376,6 +1599,26 @@ function M:CreateLegacySettingsWindow()
 		function(v) M:ApplyIndicatorConfig(SimpleBossModsDB.cfg.indicators.iconSize or 0, v) end,
 		"0 uses auto size."
 	)
+	AddNumberRow(barsSection, "Bar Gap",
+		function() return SimpleBossModsDB.cfg.general.gap or 6 end,
+		function(v) M:ApplyGeneralConfig(U.clamp(U.round(v), -30, 30), SimpleBossModsDB.cfg.general.autoInsertKeystone) end,
+		"Space between bars.", false, true
+	)
+	AddDropdownRow(barsSection, "Grow Direction",
+		barGrowDirections,
+		function() return SimpleBossModsDB.cfg.bars.growDirection end,
+		function(v) M:ApplyBarGrowDirection(v) end
+	)
+	AddDropdownRow(barsSection, "Sort Order",
+		barSortOptions,
+		function() return (SimpleBossModsDB.cfg.bars.sortAscending ~= false) and "ASC" or "DESC" end,
+		function(v) M:ApplyBarSortOrder(v) end
+	)
+	AddDropdownRow(barsSection, "Fill Direction",
+		barFillOptions,
+		function() return SimpleBossModsDB.cfg.bars.fillDirection end,
+		function(v) M:ApplyBarFillDirection(v) end
+	)
 	AddNumberRow(barsSection, "Display bars when seconds remaining",
 		function() return SimpleBossModsDB.cfg.general.thresholdToBar end,
 		function(v) M:ApplyBarThresholdConfig(v) end,
@@ -1384,7 +1627,12 @@ function M:CreateLegacySettingsWindow()
 	AddCheckRow(barsSection, "Swap Icon Side",
 		function() return SimpleBossModsDB.cfg.bars.swapIconSide end,
 		function(v) M:ApplyBarIconSideConfig(v) end,
-		"Move the icon to the opposite side (respects mirror horizontally)."
+		"Move the icon to the opposite side."
+	)
+	AddCheckRow(barsSection, "Swap Indicator Side",
+		function() return SimpleBossModsDB.cfg.bars.swapIndicatorSide end,
+		function(v) M:ApplyBarIndicatorSideConfig(v) end,
+		"Move the end indicators to the opposite side."
 	)
 	AddCheckRow(barsSection, "Hide Icon",
 		function() return SimpleBossModsDB.cfg.bars.hideIcon end,
@@ -1586,7 +1834,7 @@ function M:CreateLegacySettingsWindow()
 	local privateSound = CreateSection(privateTab, "Sound")
 	local legacySoundOptions = buildPrivateAuraSoundOptions()
 	if legacySoundOptions then
-		AddDropdownRow(privateSound, "Sound",
+		AddDropdownRow(privateSound, "Sound (currently not working due to API bugs)",
 			legacySoundOptions,
 			function() return SimpleBossModsDB.cfg.privateAuras.sound end,
 			function(v)
@@ -1785,95 +2033,6 @@ function M:CreateSettingsWindow()
 		return LSM:HashTable("sound")
 	end
 
-	local function buildGeneralTab(container)
-		local position = AG:Create("InlineGroup")
-		position:SetTitle("Position")
-		position:SetLayout("Flow")
-		position:SetFullWidth(true)
-		container:AddChild(position)
-
-		addNumberInput(position, "X Offset",
-			function() return SimpleBossModsDB.pos.x or 0 end,
-			function(v)
-				addon:ApplyGeneralConfig(
-					v,
-					SimpleBossModsDB.pos.y or 0,
-					SimpleBossModsDB.cfg.general.gap or 6,
-					SimpleBossModsDB.cfg.general.mirror,
-					SimpleBossModsDB.cfg.general.barsBelow,
-					SimpleBossModsDB.cfg.general.autoInsertKeystone
-				)
-			end,
-			0.33
-		)
-
-		addNumberInput(position, "Y Offset",
-			function() return SimpleBossModsDB.pos.y or 0 end,
-			function(v)
-				addon:ApplyGeneralConfig(
-					SimpleBossModsDB.pos.x or 0,
-					v,
-					SimpleBossModsDB.cfg.general.gap or 6,
-					SimpleBossModsDB.cfg.general.mirror,
-					SimpleBossModsDB.cfg.general.barsBelow,
-					SimpleBossModsDB.cfg.general.autoInsertKeystone
-				)
-			end,
-			0.33
-		)
-
-		addNumberInput(position, "Gap",
-			function() return SimpleBossModsDB.cfg.general.gap or 6 end,
-			function(v)
-				addon:ApplyGeneralConfig(
-					SimpleBossModsDB.pos.x or 0,
-					SimpleBossModsDB.pos.y or 0,
-					v,
-					SimpleBossModsDB.cfg.general.mirror,
-					SimpleBossModsDB.cfg.general.barsBelow,
-					SimpleBossModsDB.cfg.general.autoInsertKeystone
-				)
-			end,
-			0.33
-		)
-
-		local behavior = AG:Create("InlineGroup")
-		behavior:SetTitle("Behavior")
-		behavior:SetLayout("Flow")
-		behavior:SetFullWidth(true)
-		container:AddChild(behavior)
-
-		addCheckBox(behavior, "Mirror Horizontally",
-			function() return SimpleBossModsDB.cfg.general.mirror end,
-			function(v)
-				addon:ApplyGeneralConfig(
-					SimpleBossModsDB.pos.x or 0,
-					SimpleBossModsDB.pos.y or 0,
-					SimpleBossModsDB.cfg.general.gap or 6,
-					v,
-					SimpleBossModsDB.cfg.general.barsBelow,
-					SimpleBossModsDB.cfg.general.autoInsertKeystone
-				)
-			end,
-			0.5
-		)
-
-		addCheckBox(behavior, "Mirror Vertically",
-			function() return SimpleBossModsDB.cfg.general.barsBelow end,
-			function(v)
-				addon:ApplyGeneralConfig(
-					SimpleBossModsDB.pos.x or 0,
-					SimpleBossModsDB.pos.y or 0,
-					SimpleBossModsDB.cfg.general.gap or 6,
-					SimpleBossModsDB.cfg.general.mirror,
-					v,
-					SimpleBossModsDB.cfg.general.autoInsertKeystone
-				)
-			end,
-			0.5
-		)
-	end
-
 	local function buildDungeonTab(container)
 		local mythic = AG:Create("InlineGroup")
 		mythic:SetTitle("Mythic+")
@@ -1885,11 +2044,7 @@ function M:CreateSettingsWindow()
 			function() return SimpleBossModsDB.cfg.general.autoInsertKeystone end,
 			function(v)
 				addon:ApplyGeneralConfig(
-					SimpleBossModsDB.pos.x or 0,
-					SimpleBossModsDB.pos.y or 0,
 					SimpleBossModsDB.cfg.general.gap or 6,
-					SimpleBossModsDB.cfg.general.mirror,
-					SimpleBossModsDB.cfg.general.barsBelow,
 					v
 				)
 			end,
@@ -1924,6 +2079,64 @@ function M:CreateSettingsWindow()
 			return
 		end
 
+		local _, iconAnchorParentMap = buildAnchorParentLists(SimpleBossModsDB.cfg.icons.anchorParent)
+
+		local anchor = AG:Create("InlineGroup")
+		anchor:SetTitle("Anchor")
+		anchor:SetLayout("Flow")
+		anchor:SetFullWidth(true)
+		container:AddChild(anchor)
+
+		local customParent
+
+		addDropdown(anchor, "Anchor From",
+			ANCHOR_POINT_MAP,
+			function() return SimpleBossModsDB.cfg.icons.anchorFrom end,
+			function(v) addon:ApplyIconAnchorFrom(v) end,
+			0.33
+		)
+
+		addDropdown(anchor, "Anchor To Parent",
+			iconAnchorParentMap,
+			function() return SimpleBossModsDB.cfg.icons.anchorParent end,
+			function(v)
+				addon:ApplyIconAnchorParent(v)
+				if customParent then
+					customParent:SetText(SimpleBossModsDB.cfg.icons.customParent or "")
+				end
+			end,
+			0.33
+		)
+
+		addDropdown(anchor, "Anchor To",
+			ANCHOR_POINT_MAP,
+			function() return SimpleBossModsDB.cfg.icons.anchorTo end,
+			function(v) addon:ApplyIconAnchorTo(v) end,
+			0.33
+		)
+
+		customParent = AG:Create("EditBox")
+		customParent:SetLabel("Custom Parent (optional)")
+		customParent:SetText(SimpleBossModsDB.cfg.icons.customParent or "")
+		customParent:SetFullWidth(true)
+		customParent:SetCallback("OnEnterPressed", function(widget, _, text)
+			addon:ApplyIconCustomParent(text)
+			widget:SetText(SimpleBossModsDB.cfg.icons.customParent or "")
+		end)
+		anchor:AddChild(customParent)
+
+		addNumberInput(anchor, "X Offset",
+			function() return SimpleBossModsDB.cfg.icons.x or 0 end,
+			function(v) addon:ApplyIconAnchorPosition(v, SimpleBossModsDB.cfg.icons.y or 0) end,
+			0.5
+		)
+
+		addNumberInput(anchor, "Y Offset",
+			function() return SimpleBossModsDB.cfg.icons.y or 0 end,
+			function(v) addon:ApplyIconAnchorPosition(SimpleBossModsDB.cfg.icons.x or 0, v) end,
+			0.5
+		)
+
 		local icons = AG:Create("InlineGroup")
 		icons:SetTitle("Layout")
 		icons:SetLayout("Flow")
@@ -1957,18 +2170,30 @@ function M:CreateSettingsWindow()
 		addNumberInput(icons, "Gap",
 			function() return SimpleBossModsDB.cfg.icons.gap end,
 			function(v) addon:ApplyIconLayoutConfig(v, SimpleBossModsDB.cfg.icons.perRow, SimpleBossModsDB.cfg.icons.limit) end,
-			0.25
+			0.33
 		)
 
 		addNumberInput(icons, "Per Row",
 			function() return SimpleBossModsDB.cfg.icons.perRow end,
 			function(v) addon:ApplyIconLayoutConfig(SimpleBossModsDB.cfg.icons.gap, v, SimpleBossModsDB.cfg.icons.limit) end,
-			0.5
+			0.33
 		)
 
 		addNumberInput(icons, "Max (0 = unlimited)",
 			function() return SimpleBossModsDB.cfg.icons.limit end,
 			function(v) addon:ApplyIconLayoutConfig(SimpleBossModsDB.cfg.icons.gap, SimpleBossModsDB.cfg.icons.perRow, v) end,
+			0.33
+		)
+
+		addDropdown(icons, "Grow Direction",
+			{
+				LEFT_DOWN = "Left down",
+				LEFT_UP = "Left up",
+				RIGHT_DOWN = "Right down",
+				RIGHT_UP = "Right up",
+			},
+			function() return SimpleBossModsDB.cfg.icons.growDirection end,
+			function(v) addon:ApplyIconGrowDirection(v) end,
 			0.5
 		)
 
@@ -1977,7 +2202,7 @@ function M:CreateSettingsWindow()
 			iconFontDropdown:SetLabel("Font")
 			iconFontDropdown:SetList(LSM:HashTable("font"))
 			iconFontDropdown:SetValue(SimpleBossModsDB.cfg.icons.font)
-			iconFontDropdown:SetFullWidth(true)
+			iconFontDropdown:SetRelativeWidth(0.5)
 			iconFontDropdown:SetCallback("OnValueChanged", function(widget, _, value)
 				addon:ApplyIconFontConfig(value)
 				widget:SetValue(SimpleBossModsDB.cfg.icons.font)
@@ -1992,6 +2217,64 @@ function M:CreateSettingsWindow()
 	end
 
 	local function buildBarsTab(container)
+		local _, barsAnchorParentMap = buildAnchorParentLists(SimpleBossModsDB.cfg.bars.anchorParent)
+
+		local anchor = AG:Create("InlineGroup")
+		anchor:SetTitle("Anchor")
+		anchor:SetLayout("Flow")
+		anchor:SetFullWidth(true)
+		container:AddChild(anchor)
+
+		local customParent
+
+		addDropdown(anchor, "Anchor From",
+			ANCHOR_POINT_MAP,
+			function() return SimpleBossModsDB.cfg.bars.anchorFrom end,
+			function(v) addon:ApplyBarAnchorFrom(v) end,
+			0.33
+		)
+
+		addDropdown(anchor, "Anchor To Parent",
+			barsAnchorParentMap,
+			function() return SimpleBossModsDB.cfg.bars.anchorParent end,
+			function(v)
+				addon:ApplyBarAnchorParent(v)
+				if customParent then
+					customParent:SetText(SimpleBossModsDB.cfg.bars.customParent or "")
+				end
+			end,
+			0.33
+		)
+
+		addDropdown(anchor, "Anchor To",
+			ANCHOR_POINT_MAP,
+			function() return SimpleBossModsDB.cfg.bars.anchorTo end,
+			function(v) addon:ApplyBarAnchorTo(v) end,
+			0.33
+		)
+
+		customParent = AG:Create("EditBox")
+		customParent:SetLabel("Custom Parent (optional)")
+		customParent:SetText(SimpleBossModsDB.cfg.bars.customParent or "")
+		customParent:SetFullWidth(true)
+		customParent:SetCallback("OnEnterPressed", function(widget, _, text)
+			addon:ApplyBarCustomParent(text)
+			widget:SetText(SimpleBossModsDB.cfg.bars.customParent or "")
+		end)
+		anchor:AddChild(customParent)
+
+		addNumberInput(anchor, "X Offset",
+			function() return SimpleBossModsDB.cfg.bars.x or 0 end,
+			function(v) addon:ApplyBarAnchorPosition(v, SimpleBossModsDB.cfg.bars.y or 0) end,
+			0.5
+		)
+
+		addNumberInput(anchor, "Y Offset",
+			function() return SimpleBossModsDB.cfg.bars.y or 0 end,
+			function(v) addon:ApplyBarAnchorPosition(SimpleBossModsDB.cfg.bars.x or 0, v) end,
+			0.5
+		)
+
 		local bars = AG:Create("InlineGroup")
 		bars:SetTitle("Bars")
 		bars:SetLayout("Flow")
@@ -2025,7 +2308,39 @@ function M:CreateSettingsWindow()
 		addNumberInput(bars, "Indicator Size",
 			function() return SimpleBossModsDB.cfg.indicators.barSize or 0 end,
 			function(v) addon:ApplyIndicatorConfig(SimpleBossModsDB.cfg.indicators.iconSize or 0, v) end,
-			0.25
+			0.5
+		)
+
+		addNumberInput(bars, "Bar Gap",
+			function() return SimpleBossModsDB.cfg.general.gap or 6 end,
+			function(v)
+				addon:ApplyGeneralConfig(
+					v,
+					SimpleBossModsDB.cfg.general.autoInsertKeystone
+				)
+			end,
+			0.5
+		)
+
+		addDropdown(bars, "Grow Direction",
+			{ UP = "Up", DOWN = "Down" },
+			function() return SimpleBossModsDB.cfg.bars.growDirection end,
+			function(v) addon:ApplyBarGrowDirection(v) end,
+			0.33
+		)
+
+		addDropdown(bars, "Sort Order",
+			{ ASC = "Ascending (lowest first)", DESC = "Descending (highest first)" },
+			function() return (SimpleBossModsDB.cfg.bars.sortAscending ~= false) and "ASC" or "DESC" end,
+			function(v) addon:ApplyBarSortOrder(v) end,
+			0.33
+		)
+
+		addDropdown(bars, "Fill Direction",
+			{ LEFT = "Left", RIGHT = "Right" },
+			function() return SimpleBossModsDB.cfg.bars.fillDirection end,
+			function(v) addon:ApplyBarFillDirection(v) end,
+			0.33
 		)
 
 		addNumberInput(bars, "Display bars when seconds remaining",
@@ -2037,6 +2352,12 @@ function M:CreateSettingsWindow()
 		addCheckBox(bars, "Swap Icon Side",
 			function() return SimpleBossModsDB.cfg.bars.swapIconSide end,
 			function(v) addon:ApplyBarIconSideConfig(v) end,
+			0.5
+		)
+
+		addCheckBox(bars, "Swap Indicator Side",
+			function() return SimpleBossModsDB.cfg.bars.swapIndicatorSide end,
+			function(v) addon:ApplyBarIndicatorSideConfig(v) end,
 			0.5
 		)
 
@@ -2227,7 +2548,7 @@ function M:CreateSettingsWindow()
 				return c.r, c.g, c.b, c.a
 			end,
 			function(r, g, b, a) addon:ApplyCombatTimerColor(r, g, b, a) end,
-			0.5
+			0.33
 		)
 
 		addColorPicker(colors, "Border Color",
@@ -2236,7 +2557,7 @@ function M:CreateSettingsWindow()
 				return c.r, c.g, c.b, c.a
 			end,
 			function(r, g, b, a) addon:ApplyCombatTimerBorderColor(r, g, b, a) end,
-			0.5
+			0.33
 		)
 
 		addColorPicker(colors, "Background Color",
@@ -2245,7 +2566,7 @@ function M:CreateSettingsWindow()
 				return c.r, c.g, c.b, c.a
 			end,
 			function(r, g, b, a) addon:ApplyCombatTimerBgColor(r, g, b, a) end,
-			0.5
+			0.33
 		)
 	end
 
@@ -2383,7 +2704,7 @@ function M:CreateSettingsWindow()
 					SimpleBossModsDB.cfg.privateAuras.sound
 				)
 			end,
-			0.5
+			1
 		)
 
 		local sound = AG:Create("InlineGroup")
@@ -2411,7 +2732,7 @@ function M:CreateSettingsWindow()
 
 		if LSM then
 			local soundDropdown = AG:Create("LSM30_Sound")
-			soundDropdown:SetLabel("Sound")
+			soundDropdown:SetLabel("Sound (currently not working due to API bugs)")
 			soundDropdown:SetList(getPrivateAuraSoundList())
 			soundDropdown:SetValue(SimpleBossModsDB.cfg.privateAuras.sound)
 			soundDropdown:SetRelativeWidth(0.7)
@@ -2449,7 +2770,7 @@ function M:CreateSettingsWindow()
 		sound:AddChild(testBtn)
 	end
 
-	local status = { selected = "General" }
+	local status = { selected = "Icons" }
 	addon._settingsTabStatus = status
 
 	local tabs = AG:Create("TabGroup")
@@ -2457,7 +2778,6 @@ function M:CreateSettingsWindow()
 	tabs:SetFullWidth(true)
 	tabs:SetFullHeight(true)
 	tabs:SetTabs({
-		{ text = "General", value = "General" },
 		{ text = "Large Icons", value = "Icons" },
 		{ text = "Bars", value = "Bars" },
 		{ text = "Dungeon", value = "Dungeon" },
@@ -2466,7 +2786,6 @@ function M:CreateSettingsWindow()
 	})
 	tabs:SetStatusTable(status)
 	local validTabs = {
-		General = true,
 		Icons = true,
 		Bars = true,
 		Dungeon = true,
@@ -2476,7 +2795,7 @@ function M:CreateSettingsWindow()
 	if status.selected == "Media" then
 		status.selected = "Bars"
 	elseif not validTabs[status.selected] then
-		status.selected = "General"
+		status.selected = "Icons"
 	end
 	tabs:SetCallback("OnGroupSelected", function(container, _, group)
 		container:ReleaseChildren()
@@ -2486,9 +2805,7 @@ function M:CreateSettingsWindow()
 		scroll:SetFullHeight(true)
 		container:AddChild(scroll)
 
-		if group == "General" then
-			buildGeneralTab(scroll)
-		elseif group == "Icons" then
+		if group == "Icons" then
 			buildIconsTab(scroll)
 		elseif group == "Bars" then
 			buildBarsTab(scroll)
