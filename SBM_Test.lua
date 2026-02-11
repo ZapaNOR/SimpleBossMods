@@ -7,19 +7,23 @@ if not M then return end
 local C = M.Const
 local L = M.Live
 
+local function isSecretValue(value)
+	return type(issecretvalue) == "function" and issecretvalue(value)
+end
+
 -- =========================
 -- Test mode (single run)
 -- =========================
 local TEST_ICONS = {
 	-- spellId, duration (shortest first so A fires first)
-	{ spellId = 116,  dur = 4.0,  label = "Test A" }, -- Frostbolt
-	{ spellId = 133,  dur = 6.0,  label = "Test B" }, -- Fireball
-	{ spellId = 172,  dur = 8.0,  label = "Test C" }, -- Corruption
-	{ spellId = 589,  dur = 10.0, label = "Test D" }, -- Shadow Word: Pain
-	{ spellId = 774,  dur = 12.0, label = "Test E" }, -- Rejuvenation
-	{ spellId = 17,   dur = 14.0, label = "Test F" }, -- Power Word: Shield
-	{ spellId = 2061, dur = 16.0, label = "Test G" }, -- Flash Heal
-	{ spellId = 403,  dur = 18.0, label = "Test H" }, -- Lightning Bolt
+	{ spellId = 116,  dur = 4.0,  label = "Test A", severity = "Low" }, -- Frostbolt
+	{ spellId = 133,  dur = 6.0,  label = "Test B", severity = "Medium" }, -- Fireball
+	{ spellId = 172,  dur = 8.0,  label = "Test C", severity = "High" }, -- Corruption
+	{ spellId = 589,  dur = 10.0, label = "Test D", severity = "Low" }, -- Shadow Word: Pain
+	{ spellId = 774,  dur = 12.0, label = "Test E", severity = "Medium" }, -- Rejuvenation
+	{ spellId = 17,   dur = 14.0, label = "Test F", severity = "High" }, -- Power Word: Shield
+	{ spellId = 2061, dur = 16.0, label = "Test G", severity = "Low" }, -- Flash Heal
+	{ spellId = 403,  dur = 18.0, label = "Test H", severity = "High" }, -- Lightning Bolt
 }
 
 -- Fake indicator icons for test (not secure/API-driven)
@@ -40,6 +44,18 @@ local function canUseTimelineEditModeEvents()
 		and type(C_EncounterTimeline.CancelEditModeEvents) == "function"
 end
 
+local function isEditModeActive()
+	return EditModeManagerFrame
+		and type(EditModeManagerFrame.IsEditModeActive) == "function"
+		and EditModeManagerFrame:IsEditModeActive()
+end
+
+local function isEncounterInProgress()
+	return C_InstanceEncounter
+		and type(C_InstanceEncounter.IsEncounterInProgress) == "function"
+		and C_InstanceEncounter.IsEncounterInProgress()
+end
+
 local function getSpellIcon(spellId)
 	if not spellId then return nil end
 	if C_Spell and C_Spell.GetSpellInfo then
@@ -50,6 +66,43 @@ local function getSpellIcon(spellId)
 		return iconTex
 	end
 	return nil
+end
+
+local function getSeverityValue(severity)
+	if type(severity) == "number" then
+		return severity
+	end
+	if Enum and Enum.EncounterEventSeverity then
+		if severity == "Low" then
+			return Enum.EncounterEventSeverity.Low
+		elseif severity == "Medium" then
+			return Enum.EncounterEventSeverity.Medium
+		elseif severity == "High" then
+			return Enum.EncounterEventSeverity.High
+		end
+	end
+	if severity == "High" then
+		return 2
+	elseif severity == "Medium" then
+		return 1
+	elseif severity == "Low" then
+		return 0
+	end
+	return nil
+end
+
+local function hasTestTimelineTiming(self)
+	if not (self and self._testTimelineEventIDSet) then return false end
+	local events = self.events
+	if type(events) ~= "table" then return false end
+	for id in pairs(self._testTimelineEventIDSet) do
+		local rec = events[id]
+		local rem = rec and rec.remaining
+		if type(rem) == "number" and not isSecretValue(rem) then
+			return true
+		end
+	end
+	return false
 end
 
 function M:ClearTestTimelineEvents()
@@ -79,7 +132,7 @@ function M:ClearEditModeTimelineEvents()
 end
 
 function M:StartEditModeTimelineTest()
-	if not canUseTimelineEditModeEvents() then return false end
+	if not canUseTimelineEditModeEvents() or not isEditModeActive() then return false end
 
 	if self._testEditModeEventTimer then
 		self._testEditModeEventTimer:Cancel()
@@ -99,7 +152,14 @@ function M:StartEditModeTimelineTest()
 	end
 
 	queueEditModeEvents()
-	C_Timer.After(0, function() M:Tick() end)
+	C_Timer.After(0, function()
+		if M.RefreshTimelineEvents then
+			M:RefreshTimelineEvents()
+		end
+		if M.Tick then
+			M:Tick()
+		end
+	end)
 	return true
 end
 
@@ -112,12 +172,14 @@ function M:PushTestTimelineEvents()
 	self._testTimelineEventIDSet = {}
 	for i, t in ipairs(TEST_ICONS) do
 		local iconFileID = t.icon or getSpellIcon(t.spellId) or 134400
+		local severity = getSeverityValue(t.severity)
 		local payload = {
 			duration = t.dur,
 			spellID = t.spellId or 116,
 			overrideName = t.label,
 			iconFileID = iconFileID,
 			maxQueueDuration = 0,
+			severity = severity,
 		}
 		local id = M.SafeAddScriptEvent and M:SafeAddScriptEvent(payload) or nil
 		self._testTimelineEventIDs[i] = id
@@ -197,100 +259,117 @@ function M:StartTest()
 		self:StartCombatTimer(true)
 	end
 
-	if self.StartEditModeTimelineTest then
+	local allowTimelineTest = isEncounterInProgress()
+
+	if allowTimelineTest and self.StartEditModeTimelineTest then
 		if self:StartEditModeTimelineTest() then
 			return
 		end
 	end
 
-	if canUseTimelineScriptEvents() and self.PushTestTimelineEvents then
+	local function startManualTest()
+		local base = (math.floor(GetTime() * 1000) % 1000000) + 9100000
+		local pool = {}
+
+		for i, t in ipairs(TEST_ICONS) do
+			pool[i] = {
+				id = base + i,
+				spellId = t.spellId,
+				dur = t.dur,
+				label = t.label,
+				severity = t.severity,
+				remaining = t.dur,
+			}
+		end
+
+		local start = GetTime()
+
+		-- Seed events
+		for _, t in ipairs(pool) do
+			local info = { name = t.label, spellID = t.spellId, severity = getSeverityValue(t.severity) }
+			self:updateRecord(t.id, info, t.remaining)
+			local rec = self.events[t.id]
+			if rec then rec.isTest = true end
+		end
+		self:LayoutAll()
+
+		self._testTicker = C_Timer.NewTicker(0.05, function()
+			local now = GetTime()
+			local elapsed = now - start
+			local anyActive = false
+
+			for _, t in ipairs(pool) do
+				local rem = t.dur - elapsed
+				if rem < 0 then rem = 0 end
+				t.remaining = rem
+
+				local rec = M.events[t.id]
+				if not rec then
+					M.events[t.id] = { id = t.id }
+					rec = M.events[t.id]
+				end
+				rec.isTest = true
+				rec.eventInfo = { name = t.label, spellID = t.spellId, severity = getSeverityValue(t.severity) }
+				rec.remaining = rem
+
+				if rem > 0 then
+					anyActive = true
+					M:updateRecord(t.id, rec.eventInfo, rem)
+					rec = M.events[t.id]
+					if rec then
+						rec.isTest = true
+
+						-- Test indicators (fixed 3 icons)
+						if rec.iconFrame then
+							M:ApplyTestIndicators(rec.iconFrame, true)
+						end
+						if rec.barFrame then
+							M:ApplyTestIndicators(rec.barFrame, false)
+						end
+					end
+				else
+					M:removeEvent(t.id)
+				end
+			end
+
+			M:LayoutAll()
+
+			if not anyActive then
+				self._testTicker:Cancel()
+				self._testTicker = nil
+				if M.ShowTestPrivateAura then
+					M:ShowTestPrivateAura(false)
+				end
+				if M._testCombatTimer then
+					M._testCombatTimer = nil
+					if M.UpdateCombatTimerState then
+						M:UpdateCombatTimerState()
+					elseif M.StopCombatTimer then
+						M:StopCombatTimer()
+					end
+				end
+			end
+		end)
+	end
+
+	if allowTimelineTest and canUseTimelineScriptEvents() and self.PushTestTimelineEvents then
 		if self:PushTestTimelineEvents() then
-			C_Timer.After(0, function() M:Tick() end)
+			C_Timer.After(0, function()
+				if M.RefreshTimelineEvents then
+					M:RefreshTimelineEvents()
+				end
+				if M.Tick then
+					M:Tick()
+				end
+				if not hasTestTimelineTiming(self) then
+					self:ClearTestTimelineEvents()
+					self:clearAll()
+					startManualTest()
+				end
+			end)
 			return
 		end
 	end
 
-	local base = (math.floor(GetTime() * 1000) % 1000000) + 9100000
-	local pool = {}
-
-	for i, t in ipairs(TEST_ICONS) do
-		pool[i] = {
-			id = base + i,
-			spellId = t.spellId,
-			dur = t.dur,
-			label = t.label,
-			remaining = t.dur,
-		}
-	end
-
-	local start = GetTime()
-
-	-- Seed events
-	for _, t in ipairs(pool) do
-		local info = { name = t.label, spellID = t.spellId }
-		self:updateRecord(t.id, info, t.remaining)
-		local rec = self.events[t.id]
-		if rec then rec.isTest = true end
-	end
-	self:LayoutAll()
-
-	self._testTicker = C_Timer.NewTicker(0.05, function()
-		local now = GetTime()
-		local elapsed = now - start
-		local anyActive = false
-
-		for _, t in ipairs(pool) do
-			local rem = t.dur - elapsed
-			if rem < 0 then rem = 0 end
-			t.remaining = rem
-
-			local rec = M.events[t.id]
-			if not rec then
-				M.events[t.id] = { id = t.id }
-				rec = M.events[t.id]
-			end
-			rec.isTest = true
-			rec.eventInfo = { name = t.label, spellID = t.spellId }
-			rec.remaining = rem
-
-			if rem > 0 then
-				M._updateRecTiming(rec, rem)
-				anyActive = true
-
-				if rem <= L.THRESHOLD_TO_BAR then
-					M:ensureBar(rec)
-				else
-					M:ensureIcon(rec)
-				end
-
-				-- Test indicators (fixed 3 icons)
-				if rec.iconFrame then
-					M:ApplyTestIndicators(rec.iconFrame, true)
-				end
-				if rec.barFrame then
-					M:ApplyTestIndicators(rec.barFrame, false)
-				end
-			else
-				M:removeEvent(t.id)
-			end
-		end
-
-		M:LayoutAll()
-
-		if not anyActive then
-			self._testTicker:Cancel()
-			self._testTicker = nil
-			if M.ShowTestPrivateAura then
-				M:ShowTestPrivateAura(false)
-			end
-			if M._testCombatTimer then
-				M._testCombatTimer = nil
-				if M.UpdateCombatTimerState then
-					M:UpdateCombatTimerState()
-				elseif M.StopCombatTimer then
-					M:StopCombatTimer()
-				end
-			end
-		end
-	end)
+	startManualTest()
 end

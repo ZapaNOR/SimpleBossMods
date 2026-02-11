@@ -27,6 +27,15 @@ privateAurasAnchor:SetSize(1, 1)
 frames.privateAurasAnchor = privateAurasAnchor
 
 local getPrivateAuraLayout
+local function loadAddon(name)
+	if C_AddOns and C_AddOns.LoadAddOn then
+		return pcall(C_AddOns.LoadAddOn, name)
+	end
+	if LoadAddOn then
+		return pcall(LoadAddOn, name)
+	end
+	return false
+end
 
 function M:UpdateIconsAnchorPosition()
 	if not iconsParent then return end
@@ -290,6 +299,35 @@ function M:UpdatePrivateAuraAnchor()
 	end
 end
 
+function M:DisableBlizzardTimelineView()
+	if InCombatLockdown and InCombatLockdown() then
+		if not self._disableTimelineRetry then
+			self._disableTimelineRetry = true
+			C_Timer.After(1, function()
+				self._disableTimelineRetry = nil
+				self:DisableBlizzardTimelineView()
+			end)
+		end
+		return
+	end
+
+	local loaded = IsAddOnLoaded and IsAddOnLoaded("Blizzard_EncounterTimeline")
+	if not loaded then
+		local ok = loadAddon("Blizzard_EncounterTimeline")
+		if ok then
+			loaded = IsAddOnLoaded and IsAddOnLoaded("Blizzard_EncounterTimeline")
+		end
+	end
+	if not loaded then return end
+
+	if EncounterTimeline and EncounterTimeline.SetAttribute and Enum and Enum.EncounterTimelineViewType then
+		pcall(EncounterTimeline.SetAttribute, EncounterTimeline, "overrideViewType", Enum.EncounterTimelineViewType.None)
+	end
+	if C_EncounterTimeline and C_EncounterTimeline.SetViewType and Enum and Enum.EncounterTimelineViewType then
+		pcall(C_EncounterTimeline.SetViewType, Enum.EncounterTimelineViewType.None)
+	end
+end
+
 local function getVisibleChildCount(parent)
 	if not parent then return 0 end
 	local count = 0
@@ -547,6 +585,13 @@ function M:PlayPrivateAuraSound()
 	self._privateAuraLastSoundAt = now
 	local channel = L.PRIVATE_AURA_SOUND_CHANNEL or "Master"
 	if type(sound) == "number" then
+		if L.PRIVATE_AURA_SOUND_IS_KIT then
+			local playSound = PlaySound or (C_Sound and C_Sound.PlaySound)
+			if playSound then
+				pcall(playSound, sound, channel)
+			end
+			return
+		end
 		local played = false
 		if PlaySoundFile then
 			local ok, willPlay = pcall(PlaySoundFile, sound, channel)
@@ -582,6 +627,10 @@ function M:RegisterPrivateAuraSoundForSpell(spellId)
 
 	local sound = L.PRIVATE_AURA_SOUND
 	if not sound or sound == 0 then return false, false end
+	if L.PRIVATE_AURA_SOUND_IS_KIT then
+		self._privateAuraSoundManualFallback = true
+		return false, false
+	end
 
 	self._privateAuraSoundRegistered = self._privateAuraSoundRegistered or {}
 	if self._privateAuraSoundRegistered[spellId] then return true, false end
@@ -632,11 +681,14 @@ function M:ResetPrivateAuraSoundRegistrations()
 end
 
 function M:SetupPrivateAuraSoundWatcher()
-	if IsAddOnLoaded and IsAddOnLoaded("Blizzard_PrivateAurasUI") then
-		self._privateAuraSoundBlizzardLoaded = true
-	elseif self._privateAuraSoundBlizzardLoaded == nil then
-		self._privateAuraSoundBlizzardLoaded = false
+	local blizzLoaded = IsAddOnLoaded and IsAddOnLoaded("Blizzard_PrivateAurasUI")
+	if not blizzLoaded and not (InCombatLockdown and InCombatLockdown()) then
+		local ok = loadAddon("Blizzard_PrivateAurasUI")
+		if ok then
+			blizzLoaded = IsAddOnLoaded and IsAddOnLoaded("Blizzard_PrivateAurasUI")
+		end
 	end
+	self._privateAuraSoundBlizzardLoaded = blizzLoaded and true or false
 	if not L.PRIVATE_AURA_ENABLED then
 		return
 	end
@@ -648,20 +700,21 @@ function M:SetupPrivateAuraSoundWatcher()
 				if not L.PRIVATE_AURA_ENABLED then return end
 				if not updateInfo then return end
 				if updateInfo.addedAuras and #updateInfo.addedAuras > 0 then
+					local blizzLoadedNow = IsAddOnLoaded and IsAddOnLoaded("Blizzard_PrivateAurasUI")
 					local played = false
-					local blizzLoaded = IsAddOnLoaded and IsAddOnLoaded("Blizzard_PrivateAurasUI")
 					for _, aura in ipairs(updateInfo.addedAuras) do
 						local spellId = aura.spellId or aura.spellID
 						if spellId then
-							local _, isNew = self:RegisterPrivateAuraSoundForSpell(spellId)
-							local needsManual = self._privateAuraSoundManualFallback
-							if not needsManual then
-								if not blizzLoaded then
-									needsManual = true
-								elseif self._privateAuraSoundBlizzardLoaded and isNew then
-									needsManual = true
-								end
+							local registered = false
+							local isNew = false
+							if self.RegisterPrivateAuraSoundForSpell then
+								registered, isNew = self:RegisterPrivateAuraSoundForSpell(spellId)
 							end
+							local needsManual = L.PRIVATE_AURA_SOUND_IS_KIT
+								or not blizzLoadedNow
+								or not registered
+								or isNew
+								or self._privateAuraSoundManualFallback
 							if needsManual and not played then
 								self:PlayPrivateAuraSound()
 								played = true
@@ -1096,24 +1149,41 @@ M.applyBarMirror = applyBarMirror
 -- =========================
 -- Bar fill
 -- =========================
+local function isSecretValue(value)
+	return type(issecretvalue) == "function" and issecretvalue(value)
+end
+
 local function setBarFillFlat(barFrame, r, g, b, a)
 	if not barFrame or not barFrame.sb then return end
 	local texPath = L.BAR_TEX or C.BAR_TEX_DEFAULT or "Interface\\Buttons\\WHITE8X8"
 	local aa = a or 1
-	if barFrame.__sbmBarTex == texPath
-		and barFrame.__sbmBarR == r
-		and barFrame.__sbmBarG == g
-		and barFrame.__sbmBarB == b
-		and barFrame.__sbmBarA == aa
-		and barFrame.sbTex then
-		return
+	local canCompare = not isSecretValue(texPath)
+		and not isSecretValue(r)
+		and not isSecretValue(g)
+		and not isSecretValue(b)
+		and not isSecretValue(aa)
+		and not isSecretValue(barFrame.__sbmBarTex)
+		and not isSecretValue(barFrame.__sbmBarR)
+		and not isSecretValue(barFrame.__sbmBarG)
+		and not isSecretValue(barFrame.__sbmBarB)
+		and not isSecretValue(barFrame.__sbmBarA)
+
+	if canCompare then
+		if barFrame.__sbmBarTex == texPath
+			and barFrame.__sbmBarR == r
+			and barFrame.__sbmBarG == g
+			and barFrame.__sbmBarB == b
+			and barFrame.__sbmBarA == aa
+			and barFrame.sbTex then
+			return
+		end
 	end
 
 	barFrame.__sbmBarTex = texPath
-	barFrame.__sbmBarR = r
-	barFrame.__sbmBarG = g
-	barFrame.__sbmBarB = b
-	barFrame.__sbmBarA = aa
+	barFrame.__sbmBarR = (not isSecretValue(r)) and r or nil
+	barFrame.__sbmBarG = (not isSecretValue(g)) and g or nil
+	barFrame.__sbmBarB = (not isSecretValue(b)) and b or nil
+	barFrame.__sbmBarA = (not isSecretValue(aa)) and aa or nil
 
 	barFrame.sb:SetStatusBarTexture(texPath)
 	local tex = barFrame.sb:GetStatusBarTexture()
@@ -1130,10 +1200,6 @@ M.setBarFillFlat = setBarFillFlat
 -- =========================
 -- Tooltips
 -- =========================
-local function isSecretValue(value)
-	return type(issecretvalue) == "function" and issecretvalue(value)
-end
-
 local function getEventRecordFromFrame(frame)
 	if not frame then return nil end
 	local id = frame.__id
@@ -1428,6 +1494,7 @@ local function releaseBar(f)
 	f:Hide()
 	f:ClearAllPoints()
 	f.__id = nil
+	f.__sbmRec = nil
 
 	f.sb:SetMinMaxValues(0, L.THRESHOLD_TO_BAR)
 	f.sb:SetValue(L.THRESHOLD_TO_BAR)

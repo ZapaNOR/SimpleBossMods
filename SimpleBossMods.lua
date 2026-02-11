@@ -56,6 +56,11 @@ C.BAR_END_INDICATOR_GAP_X = 6
 C.BAR_FG_R, C.BAR_FG_G, C.BAR_FG_B, C.BAR_FG_A = (255/255), (152/255), (0/255), 1.0
 C.BAR_BG_R, C.BAR_BG_G, C.BAR_BG_B, C.BAR_BG_A = 0.0, 0.0, 0.0, 0.90
 
+-- Default severity colors (timeline)
+C.SEVERITY_LOW_R, C.SEVERITY_LOW_G, C.SEVERITY_LOW_B, C.SEVERITY_LOW_A = 1.0, 0.82, 0.2, 1.0
+C.SEVERITY_MED_R, C.SEVERITY_MED_G, C.SEVERITY_MED_B, C.SEVERITY_MED_A = C.BAR_FG_R, C.BAR_FG_G, C.BAR_FG_B, C.BAR_FG_A
+C.SEVERITY_HIGH_R, C.SEVERITY_HIGH_G, C.SEVERITY_HIGH_B, C.SEVERITY_HIGH_A = 1.0, 0.25, 0.15, 1.0
+
 local SOUND_CHANNELS = {
 	Master = "Master",
 	MASTER = "Master",
@@ -129,6 +134,14 @@ M.Defaults = M.Defaults or {
 				a = C.BAR_BG_A,
 			},
 		},
+		colors = {
+			enabled = false,
+			useBlizzard = false,
+			iconBorder = false,
+			low = { r = C.SEVERITY_LOW_R, g = C.SEVERITY_LOW_G, b = C.SEVERITY_LOW_B, a = C.SEVERITY_LOW_A },
+			medium = { r = C.SEVERITY_MED_R, g = C.SEVERITY_MED_G, b = C.SEVERITY_MED_B, a = C.SEVERITY_MED_A },
+			high = { r = C.SEVERITY_HIGH_R, g = C.SEVERITY_HIGH_G, b = C.SEVERITY_HIGH_B, a = C.SEVERITY_HIGH_A },
+		},
 		indicators = { iconSize = 10, barSize = 20 },
 		privateAuras = {
 			enabled = true,
@@ -143,6 +156,7 @@ M.Defaults = M.Defaults or {
 			customParent = "",
 			sound = "SBM: Raid Warning",
 			soundChannel = "Master",
+			soundIsKit = false,
 		},
 		combatTimer = {
 			enabled = false,
@@ -333,6 +347,59 @@ function M:EnsureDefaults()
 	end
 	repairColor(cfg.bars.color, M.Defaults.cfg.bars.color.r, M.Defaults.cfg.bars.color.g, M.Defaults.cfg.bars.color.b, M.Defaults.cfg.bars.color.a)
 	repairColor(cfg.bars.bgColor, M.Defaults.cfg.bars.bgColor.r, M.Defaults.cfg.bars.bgColor.g, M.Defaults.cfg.bars.bgColor.b, M.Defaults.cfg.bars.bgColor.a)
+	cfg.colors = cfg.colors or {
+		enabled = M.Defaults.cfg.colors.enabled,
+		useBlizzard = M.Defaults.cfg.colors.useBlizzard,
+		iconBorder = M.Defaults.cfg.colors.iconBorder,
+		low = {
+			r = M.Defaults.cfg.colors.low.r,
+			g = M.Defaults.cfg.colors.low.g,
+			b = M.Defaults.cfg.colors.low.b,
+			a = M.Defaults.cfg.colors.low.a,
+		},
+		medium = {
+			r = M.Defaults.cfg.colors.medium.r,
+			g = M.Defaults.cfg.colors.medium.g,
+			b = M.Defaults.cfg.colors.medium.b,
+			a = M.Defaults.cfg.colors.medium.a,
+		},
+		high = {
+			r = M.Defaults.cfg.colors.high.r,
+			g = M.Defaults.cfg.colors.high.g,
+			b = M.Defaults.cfg.colors.high.b,
+			a = M.Defaults.cfg.colors.high.a,
+		},
+	}
+	if cfg.colors.enabled == nil then
+		cfg.colors.enabled = M.Defaults.cfg.colors.enabled
+	end
+	if cfg.colors.useBlizzard == nil then
+		cfg.colors.useBlizzard = M.Defaults.cfg.colors.useBlizzard
+	end
+	if cfg.colors.iconBorder == nil then
+		cfg.colors.iconBorder = M.Defaults.cfg.colors.iconBorder
+	end
+	cfg.colors.low = cfg.colors.low or {
+		r = M.Defaults.cfg.colors.low.r,
+		g = M.Defaults.cfg.colors.low.g,
+		b = M.Defaults.cfg.colors.low.b,
+		a = M.Defaults.cfg.colors.low.a,
+	}
+	cfg.colors.medium = cfg.colors.medium or {
+		r = M.Defaults.cfg.colors.medium.r,
+		g = M.Defaults.cfg.colors.medium.g,
+		b = M.Defaults.cfg.colors.medium.b,
+		a = M.Defaults.cfg.colors.medium.a,
+	}
+	cfg.colors.high = cfg.colors.high or {
+		r = M.Defaults.cfg.colors.high.r,
+		g = M.Defaults.cfg.colors.high.g,
+		b = M.Defaults.cfg.colors.high.b,
+		a = M.Defaults.cfg.colors.high.a,
+	}
+	repairColor(cfg.colors.low, M.Defaults.cfg.colors.low.r, M.Defaults.cfg.colors.low.g, M.Defaults.cfg.colors.low.b, M.Defaults.cfg.colors.low.a)
+	repairColor(cfg.colors.medium, M.Defaults.cfg.colors.medium.r, M.Defaults.cfg.colors.medium.g, M.Defaults.cfg.colors.medium.b, M.Defaults.cfg.colors.medium.a)
+	repairColor(cfg.colors.high, M.Defaults.cfg.colors.high.r, M.Defaults.cfg.colors.high.g, M.Defaults.cfg.colors.high.b, M.Defaults.cfg.colors.high.a)
 	cfg.indicators = cfg.indicators or {
 		iconSize = M.Defaults.cfg.indicators.iconSize,
 		barSize = M.Defaults.cfg.indicators.barSize,
@@ -349,6 +416,7 @@ function M:EnsureDefaults()
 		anchorParent = M.Defaults.cfg.privateAuras.anchorParent,
 		customParent = M.Defaults.cfg.privateAuras.customParent,
 		sound = M.Defaults.cfg.privateAuras.sound,
+		soundIsKit = M.Defaults.cfg.privateAuras.soundIsKit,
 	}
 	if cfg.privateAuras.size == nil then
 		cfg.privateAuras.size = M.Defaults.cfg.privateAuras.size
@@ -387,6 +455,9 @@ function M:EnsureDefaults()
 		else
 			cfg.privateAuras.sound = M.Defaults.cfg.privateAuras.sound
 		end
+	end
+	if cfg.privateAuras.soundIsKit == nil then
+		cfg.privateAuras.soundIsKit = M.Defaults.cfg.privateAuras.soundIsKit
 	end
 	if cfg.privateAuras.soundChannel == nil then
 		cfg.privateAuras.soundChannel = M.Defaults.cfg.privateAuras.soundChannel
@@ -509,6 +580,7 @@ function M.SyncLiveConfig()
 	local ic = SimpleBossModsDB.cfg.icons
 	local bc = SimpleBossModsDB.cfg.bars
 	local inc = SimpleBossModsDB.cfg.indicators
+	local cc = SimpleBossModsDB.cfg.colors or M.Defaults.cfg.colors
 	local pc = SimpleBossModsDB.cfg.privateAuras or M.Defaults.cfg.privateAuras
 	local ct = SimpleBossModsDB.cfg.combatTimer or M.Defaults.cfg.combatTimer
 	L.PRIVATE_AURA_ENABLED = pc.enabled ~= false
@@ -650,6 +722,25 @@ function M.SyncLiveConfig()
 	L.BAR_BG_B = U.clamp(tonumber(barBg.b) or C.BAR_BG_B, 0, 1)
 	L.BAR_BG_A = U.clamp(tonumber(barBg.a) or C.BAR_BG_A, 0, 1)
 
+	L.SEVERITY_COLOR_ENABLED = cc.enabled ~= false
+	L.SEVERITY_COLOR_USE_BLIZZARD = cc.useBlizzard and true or false
+	L.ICON_SEVERITY_BORDER = cc.iconBorder and true or false
+	local low = cc.low or M.Defaults.cfg.colors.low
+	local med = cc.medium or M.Defaults.cfg.colors.medium
+	local high = cc.high or M.Defaults.cfg.colors.high
+	L.SEVERITY_LOW_R = U.clamp(tonumber(low.r) or M.Defaults.cfg.colors.low.r, 0, 1)
+	L.SEVERITY_LOW_G = U.clamp(tonumber(low.g) or M.Defaults.cfg.colors.low.g, 0, 1)
+	L.SEVERITY_LOW_B = U.clamp(tonumber(low.b) or M.Defaults.cfg.colors.low.b, 0, 1)
+	L.SEVERITY_LOW_A = U.clamp(tonumber(low.a) or M.Defaults.cfg.colors.low.a, 0, 1)
+	L.SEVERITY_MED_R = U.clamp(tonumber(med.r) or M.Defaults.cfg.colors.medium.r, 0, 1)
+	L.SEVERITY_MED_G = U.clamp(tonumber(med.g) or M.Defaults.cfg.colors.medium.g, 0, 1)
+	L.SEVERITY_MED_B = U.clamp(tonumber(med.b) or M.Defaults.cfg.colors.medium.b, 0, 1)
+	L.SEVERITY_MED_A = U.clamp(tonumber(med.a) or M.Defaults.cfg.colors.medium.a, 0, 1)
+	L.SEVERITY_HIGH_R = U.clamp(tonumber(high.r) or M.Defaults.cfg.colors.high.r, 0, 1)
+	L.SEVERITY_HIGH_G = U.clamp(tonumber(high.g) or M.Defaults.cfg.colors.high.g, 0, 1)
+	L.SEVERITY_HIGH_B = U.clamp(tonumber(high.b) or M.Defaults.cfg.colors.high.b, 0, 1)
+	L.SEVERITY_HIGH_A = U.clamp(tonumber(high.a) or M.Defaults.cfg.colors.high.a, 0, 1)
+
 	L.ICON_INDICATOR_SIZE = tonumber(inc.iconSize) or 0
 	L.BAR_INDICATOR_SIZE = tonumber(inc.barSize) or 0
 
@@ -688,8 +779,18 @@ function M.SyncLiveConfig()
 	end
 	L.PRIVATE_AURA_X = tonumber(pc.x) or 0
 	L.PRIVATE_AURA_Y = tonumber(pc.y) or 0
-	local soundKey = pc.sound or M.Defaults.cfg.privateAuras.sound
-	L.PRIVATE_AURA_SOUND_KEY = soundKey
+	local rawSoundKey = pc.sound or M.Defaults.cfg.privateAuras.sound
+	local soundKey = rawSoundKey
+	local soundIsKit = pc.soundIsKit and true or false
+	if type(soundKey) == "string" then
+		if soundKey:sub(1, 4) == "kit:" then
+			soundIsKit = true
+			soundKey = tonumber(soundKey:sub(5)) or 0
+		elseif soundKey:sub(1, 4) == "lsm:" then
+			soundKey = soundKey:sub(5)
+		end
+	end
+	L.PRIVATE_AURA_SOUND_KEY = rawSoundKey
 	local soundValue = nil
 	if type(soundKey) == "number" then
 		soundValue = soundKey
@@ -708,6 +809,7 @@ function M.SyncLiveConfig()
 		soundValue = pc.soundKitID
 	end
 	L.PRIVATE_AURA_SOUND = soundValue
+	L.PRIVATE_AURA_SOUND_IS_KIT = (soundIsKit and type(soundValue) == "number" and soundValue ~= 0) and true or false
 	L.PRIVATE_AURA_SOUND_CHANNEL = M.NormalizeSoundChannel(pc.soundChannel) or M.Defaults.cfg.privateAuras.soundChannel
 
 	L.COMBAT_TIMER_ENABLED = ct.enabled and true or false

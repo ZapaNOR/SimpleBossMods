@@ -443,6 +443,9 @@ ef:SetScript("OnEvent", function(_, event, ...)
 		if M.SetupPrivateAuraSoundWatcher then
 			M:SetupPrivateAuraSoundWatcher()
 		end
+		if M.DisableBlizzardTimelineView then
+			M:DisableBlizzardTimelineView()
+		end
 
 		M:ApplyGeneralConfig(
 			SimpleBossModsDB.cfg.general.gap or 6,
@@ -473,7 +476,12 @@ ef:SetScript("OnEvent", function(_, event, ...)
 			local now = (GetTime and GetTime()) or 0
 			M._suppressTimelineUntil = now + 0.5
 		end
-		M:Tick()
+		if M.RefreshTimelineEvents then
+			M:RefreshTimelineEvents()
+		end
+		if M.Tick then
+			M:Tick()
+		end
 		M:LayoutAll()
 		if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
 			C_ChatInfo.RegisterAddonMessagePrefix("D5")
@@ -502,6 +510,10 @@ ef:SetScript("OnEvent", function(_, event, ...)
 			if M.SetupKeystoneAutoInsert then
 				M:SetupKeystoneAutoInsert()
 			end
+		elseif name == "Blizzard_EncounterTimeline" then
+			if M.DisableBlizzardTimelineView then
+				M:DisableBlizzardTimelineView()
+			end
 		elseif name == "Blizzard_PrivateAurasUI" then
 			if M.SetupPrivateAuraSoundWatcher then
 				M:SetupPrivateAuraSoundWatcher()
@@ -509,8 +521,19 @@ ef:SetScript("OnEvent", function(_, event, ...)
 		end
 	elseif event == "ENCOUNTER_TIMELINE_EVENT_ADDED"
 		or event == "ENCOUNTER_TIMELINE_EVENT_REMOVED"
-		or event == "ENCOUNTER_TIMELINE_EVENT_STATE_CHANGED" then
-		C_Timer.After(0, function() M:Tick() end)
+		or event == "ENCOUNTER_TIMELINE_EVENT_STATE_CHANGED"
+		or event == "ENCOUNTER_TIMELINE_EVENT_TRACK_CHANGED"
+		or event == "ENCOUNTER_TIMELINE_EVENT_BLOCK_STATE_CHANGED"
+		or event == "ENCOUNTER_TIMELINE_EVENT_HIGHLIGHT"
+		or event == "ENCOUNTER_TIMELINE_LAYOUT_UPDATED"
+		or event == "ENCOUNTER_TIMELINE_STATE_UPDATED"
+		or event == "ENCOUNTER_TIMELINE_VIEW_ACTIVATED"
+		or event == "ENCOUNTER_TIMELINE_VIEW_DEACTIVATED" then
+		if M.HandleTimelineEvent then
+			M:HandleTimelineEvent(event, ...)
+		elseif M.Tick then
+			C_Timer.After(0, function() M:Tick() end)
+		end
 	elseif event == "PLAYER_REGEN_DISABLED" then
 		if M.StartCombatTimer then
 			M:StartCombatTimer(true)
@@ -630,6 +653,13 @@ ef:RegisterEvent("ADDON_LOADED")
 ef:RegisterEvent("ENCOUNTER_TIMELINE_EVENT_ADDED")
 ef:RegisterEvent("ENCOUNTER_TIMELINE_EVENT_REMOVED")
 ef:RegisterEvent("ENCOUNTER_TIMELINE_EVENT_STATE_CHANGED")
+ef:RegisterEvent("ENCOUNTER_TIMELINE_EVENT_TRACK_CHANGED")
+ef:RegisterEvent("ENCOUNTER_TIMELINE_EVENT_BLOCK_STATE_CHANGED")
+ef:RegisterEvent("ENCOUNTER_TIMELINE_EVENT_HIGHLIGHT")
+ef:RegisterEvent("ENCOUNTER_TIMELINE_LAYOUT_UPDATED")
+ef:RegisterEvent("ENCOUNTER_TIMELINE_STATE_UPDATED")
+ef:RegisterEvent("ENCOUNTER_TIMELINE_VIEW_ACTIVATED")
+ef:RegisterEvent("ENCOUNTER_TIMELINE_VIEW_DEACTIVATED")
 ef:RegisterEvent("PLAYER_REGEN_DISABLED")
 ef:RegisterEvent("PLAYER_REGEN_ENABLED")
 ef:RegisterEvent("START_PLAYER_COUNTDOWN")

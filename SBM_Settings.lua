@@ -56,6 +56,175 @@ local function isAddonLoaded(name)
 	return false
 end
 
+local SOUND_KEY_PREFIX_LSM = "lsm:"
+local SOUND_KEY_PREFIX_KIT = "kit:"
+local COOLDOWN_SOUND_CATEGORY_LABELS = {
+	Animals = "COOLDOWN_VIEWER_SETTINGS_SOUND_ALERT_CATEGORY_ANIMALS",
+	Devices = "COOLDOWN_VIEWER_SETTINGS_SOUND_ALERT_CATEGORY_DEVICES",
+	Impacts = "COOLDOWN_VIEWER_SETTINGS_SOUND_ALERT_CATEGORY_IMPACTS",
+	Instruments = "COOLDOWN_VIEWER_SETTINGS_SOUND_ALERT_CATEGORY_INSTRUMENTS",
+	War2 = "COOLDOWN_VIEWER_SETTINGS_SOUND_ALERT_CATEGORY_WAR2",
+	War3 = "COOLDOWN_VIEWER_SETTINGS_SOUND_ALERT_CATEGORY_WAR3",
+}
+
+local function loadAddon(name)
+	if C_AddOns and C_AddOns.LoadAddOn then
+		return pcall(C_AddOns.LoadAddOn, name)
+	end
+	if LoadAddOn then
+		return pcall(LoadAddOn, name)
+	end
+	return false
+end
+
+local function getCooldownViewerSoundData()
+	if type(CooldownViewerSoundData) == "table" then
+		return CooldownViewerSoundData
+	end
+	if InCombatLockdown and InCombatLockdown() then
+		return nil
+	end
+	local ok = loadAddon("Blizzard_CooldownViewer")
+	if ok and type(CooldownViewerSoundData) == "table" then
+		return CooldownViewerSoundData
+	end
+	return nil
+end
+
+function M.GetCooldownSoundAlertList()
+	local data = getCooldownViewerSoundData()
+	if type(data) ~= "table" then return nil end
+
+	local categories = {}
+	for category in pairs(data) do
+		categories[#categories + 1] = category
+	end
+	table.sort(categories)
+
+	local list = {}
+	for _, category in ipairs(categories) do
+		local entries = data[category]
+		if type(entries) == "table" then
+			local items = {}
+			for _, entry in ipairs(entries) do
+				local kit = entry.soundKitID
+				if kit then
+					local label = entry.text
+					if type(label) ~= "string" then
+						label = tostring(label or kit)
+					end
+					items[#items + 1] = {
+						soundKitID = kit,
+						soundEnum = entry.soundEnum,
+						label = label,
+					}
+				end
+			end
+			table.sort(items, function(a, b) return a.label < b.label end)
+			if #items > 0 then
+				local labelKey = COOLDOWN_SOUND_CATEGORY_LABELS[category]
+				local label = labelKey and _G[labelKey] or nil
+				if type(label) ~= "string" or label == "" then
+					label = tostring(category)
+				end
+				list[#list + 1] = { key = category, label = label, items = items }
+			end
+		end
+	end
+
+	return list
+end
+
+local function buildPrivateAuraSoundData()
+	local groups = {}
+	local index = { [0] = "None" }
+	local list = { [0] = "None" }
+
+	local data = M.GetCooldownSoundAlertList()
+	if type(data) == "table" then
+		for _, category in ipairs(data) do
+			local items = {}
+			for _, entry in ipairs(category.items or {}) do
+				local kit = entry.soundKitID
+				local label = entry.label
+				if kit and label then
+					local id = SOUND_KEY_PREFIX_KIT .. tostring(kit)
+					items[#items + 1] = { id = id, label = label }
+					index[id] = label
+					list[id] = label
+				end
+			end
+			if #items > 0 then
+				groups[#groups + 1] = { label = category.label, items = items }
+			end
+		end
+	end
+
+	if LSM then
+		local items = {}
+		for key in pairs(LSM:HashTable("sound")) do
+			if key ~= "SBM: None" then
+				local id = SOUND_KEY_PREFIX_LSM .. key
+				items[#items + 1] = { id = id, label = key }
+				index[id] = key
+				list[id] = key
+			end
+		end
+		table.sort(items, function(a, b) return a.label < b.label end)
+		if #items > 0 then
+			groups[#groups + 1] = { label = "SharedMedia", items = items }
+		end
+	end
+
+	return groups, index, list
+end
+
+local function getPrivateAuraSoundSelectionKey()
+	local pc = SimpleBossModsDB and SimpleBossModsDB.cfg and SimpleBossModsDB.cfg.privateAuras
+	if not pc then return 0 end
+	local sound = pc.sound
+	if sound == nil or sound == 0 or sound == "SBM: None" then
+		return 0
+	end
+	if type(sound) == "string" then
+		if sound:sub(1, 4) == SOUND_KEY_PREFIX_KIT or sound:sub(1, 4) == SOUND_KEY_PREFIX_LSM then
+			return sound
+		end
+		if pc.soundIsKit then
+			local numeric = tonumber(sound)
+			if numeric then
+				return SOUND_KEY_PREFIX_KIT .. tostring(numeric)
+			end
+		end
+		return SOUND_KEY_PREFIX_LSM .. sound
+	end
+	if type(sound) == "number" then
+		if pc.soundIsKit then
+			return SOUND_KEY_PREFIX_KIT .. tostring(sound)
+		end
+		return sound
+	end
+	return 0
+end
+
+local function decodePrivateAuraSoundSelection(value)
+	if value == nil or value == 0 then
+		return "none", nil
+	end
+	if type(value) == "string" then
+		if value:sub(1, 4) == SOUND_KEY_PREFIX_KIT then
+			return "kit", tonumber(value:sub(5))
+		elseif value:sub(1, 4) == SOUND_KEY_PREFIX_LSM then
+			return "lsm", value:sub(5)
+		end
+		return "lsm", value
+	end
+	if type(value) == "number" then
+		return "file", value
+	end
+	return "none", nil
+end
+
 local function buildAnchorParentLists(currentValue)
 	local list = {}
 	local map = {}
@@ -495,6 +664,66 @@ function M:ApplyBarBgColor(r, g, b, a)
 	end
 end
 
+local function refreshSeverityColors()
+	M.SyncLiveConfig()
+	if M.events then
+		for id, rec in pairs(M.events) do
+			M:updateRecord(id, rec.eventInfo, rec.remaining)
+		end
+	end
+	if M.LayoutAll then
+		M:LayoutAll()
+	end
+end
+
+function M:ApplySeverityColorsEnabled(enabled)
+	local cc = SimpleBossModsDB.cfg.colors
+	cc.enabled = enabled and true or false
+	refreshSeverityColors()
+end
+
+function M:ApplySeverityUseBlizzard(useBlizzard)
+	local cc = SimpleBossModsDB.cfg.colors
+	cc.useBlizzard = useBlizzard and true or false
+	refreshSeverityColors()
+end
+
+function M:ApplySeverityIconBorder(useBorder)
+	local cc = SimpleBossModsDB.cfg.colors
+	cc.iconBorder = useBorder and true or false
+	refreshSeverityColors()
+end
+
+function M:ApplySeverityLowColor(r, g, b, a)
+	local cc = SimpleBossModsDB.cfg.colors
+	cc.low = cc.low or {}
+	cc.low.r = U.clamp(tonumber(r) or L.SEVERITY_LOW_R, 0, 1)
+	cc.low.g = U.clamp(tonumber(g) or L.SEVERITY_LOW_G, 0, 1)
+	cc.low.b = U.clamp(tonumber(b) or L.SEVERITY_LOW_B, 0, 1)
+	cc.low.a = U.clamp(tonumber(a) or L.SEVERITY_LOW_A, 0, 1)
+	refreshSeverityColors()
+end
+
+function M:ApplySeverityMediumColor(r, g, b, a)
+	local cc = SimpleBossModsDB.cfg.colors
+	cc.medium = cc.medium or {}
+	cc.medium.r = U.clamp(tonumber(r) or L.SEVERITY_MED_R, 0, 1)
+	cc.medium.g = U.clamp(tonumber(g) or L.SEVERITY_MED_G, 0, 1)
+	cc.medium.b = U.clamp(tonumber(b) or L.SEVERITY_MED_B, 0, 1)
+	cc.medium.a = U.clamp(tonumber(a) or L.SEVERITY_MED_A, 0, 1)
+	refreshSeverityColors()
+end
+
+function M:ApplySeverityHighColor(r, g, b, a)
+	local cc = SimpleBossModsDB.cfg.colors
+	cc.high = cc.high or {}
+	cc.high.r = U.clamp(tonumber(r) or L.SEVERITY_HIGH_R, 0, 1)
+	cc.high.g = U.clamp(tonumber(g) or L.SEVERITY_HIGH_G, 0, 1)
+	cc.high.b = U.clamp(tonumber(b) or L.SEVERITY_HIGH_B, 0, 1)
+	cc.high.a = U.clamp(tonumber(a) or L.SEVERITY_HIGH_A, 0, 1)
+	refreshSeverityColors()
+end
+
 function M:ApplyFontConfig(fontKey)
 	local gc = SimpleBossModsDB.cfg.general
 	gc.font = fontKey or M.Defaults.cfg.general.font
@@ -594,6 +823,35 @@ function M:ApplyPrivateAuraConfig(size, gap, growDirection, x, y, soundKey)
 	end
 	if M.UpdatePrivateAuraAnchor then
 		M:UpdatePrivateAuraAnchor()
+	end
+end
+
+function M:ApplyPrivateAuraSoundSelection(value)
+	local pc = SimpleBossModsDB.cfg.privateAuras
+	local kind, payload = decodePrivateAuraSoundSelection(value)
+	if kind == "none" then
+		pc.sound = "SBM: None"
+		pc.soundIsKit = false
+	elseif kind == "kit" then
+		if payload and payload ~= 0 then
+			pc.sound = payload
+			pc.soundIsKit = true
+		else
+			pc.sound = "SBM: None"
+			pc.soundIsKit = false
+		end
+	elseif kind == "lsm" then
+		pc.sound = payload
+		pc.soundIsKit = false
+	elseif kind == "file" then
+		pc.sound = payload
+		pc.soundIsKit = false
+	end
+	pc.soundKitID = nil
+
+	M.SyncLiveConfig()
+	if M.ResetPrivateAuraSoundRegistrations then
+		M:ResetPrivateAuraSoundRegistrations()
 	end
 end
 
@@ -896,6 +1154,7 @@ function M:CreateLegacySettingsWindow()
 	local HEADER_SPACING = 6
 	local SECTION_SPACING = 12
 	local inputs = {}
+	local privateAuraSoundIndex = {}
 	local tabs = {}
 	local tabsById = {}
 	local SelectTab
@@ -1050,13 +1309,9 @@ function M:CreateLegacySettingsWindow()
 	end
 
 	local function buildPrivateAuraSoundOptions()
-		if not LSM then return nil end
-		local list = {}
-		for key in pairs(LSM:HashTable("sound")) do
-			list[#list + 1] = { label = key, value = key }
-		end
-		table.sort(list, function(a, b) return a.label < b.label end)
-		return list
+		local groups, index = buildPrivateAuraSoundData()
+		privateAuraSoundIndex = index or {}
+		return groups
 	end
 
 	local function buildFontOptions()
@@ -1413,6 +1668,7 @@ function M:CreateLegacySettingsWindow()
 	local dungeonTab = CreateTab(2, "Dungeon")
 	local combatTab = CreateTab(3, "Combat Timer")
 	local privateTab = CreateTab(4, "Private Auras")
+	local colorsTab = CreateTab(5, "Colors")
 
 	PanelTemplates_SetNumTabs(panel, #tabs)
 	local bottomBar = CreateFrame("Frame", nil, panel)
@@ -1650,6 +1906,44 @@ function M:CreateLegacySettingsWindow()
 		function(r, g, b, a) M:ApplyBarBgColor(r, g, b, a) end
 	)
 
+	local severitySection = CreateSection(colorsTab, "Severity Colors")
+	AddCheckRow(severitySection, "Enable Custom Colors",
+		function() return SimpleBossModsDB.cfg.colors.enabled ~= false end,
+		function(v) M:ApplySeverityColorsEnabled(v) end,
+		"Use per-severity bar colors instead of the default bar color."
+	)
+	AddCheckRow(severitySection, "Use Blizzard Colors",
+		function() return SimpleBossModsDB.cfg.colors.useBlizzard end,
+		function(v) M:ApplySeverityUseBlizzard(v) end,
+		"Ignore custom severity colors and use the timeline's color when available."
+	)
+	AddCheckRow(severitySection, "Color Large Icon Border",
+		function() return SimpleBossModsDB.cfg.colors.iconBorder end,
+		function(v) M:ApplySeverityIconBorder(v) end,
+		"Uses severity colors for large icon borders (requires custom colors enabled)."
+	)
+	AddColorRow(severitySection, "Low Severity",
+		function()
+			local c = SimpleBossModsDB.cfg.colors.low
+			return c.r, c.g, c.b, c.a
+		end,
+		function(r, g, b, a) M:ApplySeverityLowColor(r, g, b, a) end
+	)
+	AddColorRow(severitySection, "Medium Severity",
+		function()
+			local c = SimpleBossModsDB.cfg.colors.medium
+			return c.r, c.g, c.b, c.a
+		end,
+		function(r, g, b, a) M:ApplySeverityMediumColor(r, g, b, a) end
+	)
+	AddColorRow(severitySection, "High Severity",
+		function()
+			local c = SimpleBossModsDB.cfg.colors.high
+			return c.r, c.g, c.b, c.a
+		end,
+		function(r, g, b, a) M:ApplySeverityHighColor(r, g, b, a) end
+	)
+
 	local combatEnable = CreateSection(combatTab, "Combat Timer")
 	AddCheckRow(combatEnable, "Enable Combat Timer",
 		function() return SimpleBossModsDB.cfg.combatTimer.enabled end,
@@ -1832,29 +2126,13 @@ function M:CreateLegacySettingsWindow()
 	)
 
 	local privateSound = CreateSection(privateTab, "Sound")
-	local legacySoundOptions = buildPrivateAuraSoundOptions()
-	if legacySoundOptions then
-		AddDropdownRow(privateSound, "Sound (currently not working due to API bugs)",
-			legacySoundOptions,
-			function() return SimpleBossModsDB.cfg.privateAuras.sound end,
-			function(v)
-				M:ApplyPrivateAuraConfig(
-					SimpleBossModsDB.cfg.privateAuras.size,
-					SimpleBossModsDB.cfg.privateAuras.gap,
-					SimpleBossModsDB.cfg.privateAuras.growDirection,
-					SimpleBossModsDB.cfg.privateAuras.x,
-					SimpleBossModsDB.cfg.privateAuras.y,
-					v
-				)
-			end,
-			"Plays when a new private aura appears."
-		)
-	else
-		local row = CreateRow(privateSound, ROW_H)
-		local fs = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-		fs:SetPoint("LEFT", row, "LEFT", LABEL_X, 0)
-		fs:SetText("LibSharedMedia is not available.")
-	end
+	local soundGroups = buildPrivateAuraSoundOptions()
+	AddSoundDropdownRow(privateSound, "Sound",
+		soundGroups or {},
+		function() return getPrivateAuraSoundSelectionKey() end,
+		function(v) M:ApplyPrivateAuraSoundSelection(v) end,
+		"Plays when a new private aura appears."
+	)
 
 	AddButton(privateSound, "Test Sound", function()
 		if M.PlayPrivateAuraSound then
@@ -2029,8 +2307,12 @@ function M:CreateSettingsWindow()
 	end
 
 	local function getPrivateAuraSoundList()
-		if not LSM then return nil end
-		return LSM:HashTable("sound")
+		local _, _, list = buildPrivateAuraSoundData()
+		local currentKey = getPrivateAuraSoundSelectionKey()
+		if currentKey ~= 0 and list[currentKey] == nil then
+			list[currentKey] = "Custom (" .. tostring(currentKey) .. ")"
+		end
+		return list
 	end
 
 	local function buildDungeonTab(container)
@@ -2421,6 +2703,82 @@ function M:CreateSettingsWindow()
 		)
 	end
 
+	local function buildColorsTab(container)
+		local colorCfg = SimpleBossModsDB.cfg.colors
+
+		local options = AG:Create("InlineGroup")
+		options:SetTitle("Severity Colors")
+		options:SetLayout("Flow")
+		options:SetFullWidth(true)
+		container:AddChild(options)
+
+		local enable = AG:Create("CheckBox")
+		enable:SetLabel("Enable Custom Colors")
+		enable:SetValue(colorCfg.enabled ~= false)
+		enable:SetFullWidth(true)
+		enable:SetCallback("OnValueChanged", function(_, _, value)
+			addon:ApplySeverityColorsEnabled(value)
+			container:ReleaseChildren()
+			buildColorsTab(container)
+		end)
+		options:AddChild(enable)
+
+		local useBlizzard = AG:Create("CheckBox")
+		useBlizzard:SetLabel("Use Blizzard Colors")
+		useBlizzard:SetValue(colorCfg.useBlizzard and true or false)
+		useBlizzard:SetFullWidth(true)
+		useBlizzard:SetCallback("OnValueChanged", function(_, _, value)
+			addon:ApplySeverityUseBlizzard(value)
+			container:ReleaseChildren()
+			buildColorsTab(container)
+		end)
+		options:AddChild(useBlizzard)
+
+		local iconBorder = AG:Create("CheckBox")
+		iconBorder:SetLabel("Color Large Icon Border")
+		iconBorder:SetValue(colorCfg.iconBorder and true or false)
+		iconBorder:SetFullWidth(true)
+		iconBorder:SetCallback("OnValueChanged", function(_, _, value)
+			addon:ApplySeverityIconBorder(value)
+			container:ReleaseChildren()
+			buildColorsTab(container)
+		end)
+		options:AddChild(iconBorder)
+
+		local pickers = AG:Create("InlineGroup")
+		pickers:SetTitle("Colors")
+		pickers:SetLayout("Flow")
+		pickers:SetFullWidth(true)
+		container:AddChild(pickers)
+
+		addColorPicker(pickers, "Low Severity",
+			function()
+				local c = SimpleBossModsDB.cfg.colors.low
+				return c.r, c.g, c.b, c.a
+			end,
+			function(r, g, b, a) addon:ApplySeverityLowColor(r, g, b, a) end,
+			0.33
+		)
+
+		addColorPicker(pickers, "Medium Severity",
+			function()
+				local c = SimpleBossModsDB.cfg.colors.medium
+				return c.r, c.g, c.b, c.a
+			end,
+			function(r, g, b, a) addon:ApplySeverityMediumColor(r, g, b, a) end,
+			0.33
+		)
+
+		addColorPicker(pickers, "High Severity",
+			function()
+				local c = SimpleBossModsDB.cfg.colors.high
+				return c.r, c.g, c.b, c.a
+			end,
+			function(r, g, b, a) addon:ApplySeverityHighColor(r, g, b, a) end,
+			0.33
+		)
+	end
+
 	local function buildCombatTimerTab(container)
 		local enabled = SimpleBossModsDB.cfg.combatTimer.enabled and true or false
 		local enable = AG:Create("InlineGroup")
@@ -2730,38 +3088,16 @@ function M:CreateSettingsWindow()
 			1
 		)
 
-		if LSM then
-			local soundDropdown = AG:Create("LSM30_Sound")
-			soundDropdown:SetLabel("Sound (currently not working due to API bugs)")
-			soundDropdown:SetList(getPrivateAuraSoundList())
-			soundDropdown:SetValue(SimpleBossModsDB.cfg.privateAuras.sound)
-			soundDropdown:SetRelativeWidth(0.7)
-			soundDropdown:SetCallback("OnValueChanged", function(widget, _, value)
-				addon:ApplyPrivateAuraConfig(
-					SimpleBossModsDB.cfg.privateAuras.size,
-					SimpleBossModsDB.cfg.privateAuras.gap,
-					SimpleBossModsDB.cfg.privateAuras.growDirection,
-					SimpleBossModsDB.cfg.privateAuras.x,
-					SimpleBossModsDB.cfg.privateAuras.y,
-					value
-				)
-				widget:SetValue(SimpleBossModsDB.cfg.privateAuras.sound)
-			end)
-			sound:AddChild(soundDropdown)
-		else
-			local label = AG:Create("Label")
-			label:SetText("LibSharedMedia is not available.")
-			label:SetFullWidth(true)
-			sound:AddChild(label)
-		end
+		addDropdown(sound, "Sound",
+			getPrivateAuraSoundList(),
+			function() return getPrivateAuraSoundSelectionKey() end,
+			function(v) addon:ApplyPrivateAuraSoundSelection(v) end,
+			0.7
+		)
 
 		local testBtn = AG:Create("Button")
 		testBtn:SetText("Test Sound")
-		if LSM then
-			testBtn:SetRelativeWidth(0.3)
-		else
-			testBtn:SetFullWidth(true)
-		end
+		testBtn:SetRelativeWidth(0.3)
 		testBtn:SetCallback("OnClick", function()
 			if addon.PlayPrivateAuraSound then
 				addon:PlayPrivateAuraSound()
@@ -2780,6 +3116,7 @@ function M:CreateSettingsWindow()
 	tabs:SetTabs({
 		{ text = "Large Icons", value = "Icons" },
 		{ text = "Bars", value = "Bars" },
+		{ text = "Colors", value = "Colors" },
 		{ text = "Dungeon", value = "Dungeon" },
 		{ text = "Combat Timer", value = "Combat" },
 		{ text = "Private Auras", value = "Private" },
@@ -2788,6 +3125,7 @@ function M:CreateSettingsWindow()
 	local validTabs = {
 		Icons = true,
 		Bars = true,
+		Colors = true,
 		Dungeon = true,
 		Combat = true,
 		Private = true,
@@ -2809,6 +3147,8 @@ function M:CreateSettingsWindow()
 			buildIconsTab(scroll)
 		elseif group == "Bars" then
 			buildBarsTab(scroll)
+		elseif group == "Colors" then
+			buildColorsTab(scroll)
 		elseif group == "Dungeon" then
 			buildDungeonTab(scroll)
 		elseif group == "Combat" then

@@ -20,6 +20,87 @@ local function isSecretValue(value)
 	return type(issecretvalue) == "function" and issecretvalue(value)
 end
 
+local function readEventColor(eventInfo)
+	if type(eventInfo) ~= "table" then return nil end
+	local color = eventInfo.color
+	if isSecretValue(color) then return nil end
+	if type(color) ~= "table" then return nil end
+	if type(color.GetRGBA) == "function" then
+		local ok, r, g, b, a = pcall(color.GetRGBA, color)
+		if ok and type(r) == "number" then
+			return r, g, b, a
+		end
+	end
+	if type(color.GetRGB) == "function" then
+		local ok, r, g, b = pcall(color.GetRGB, color)
+		if ok and type(r) == "number" then
+			return r, g, b, 1
+		end
+	end
+	if type(color.r) == "number" and type(color.g) == "number" and type(color.b) == "number" then
+		return color.r, color.g, color.b, type(color.a) == "number" and color.a or 1
+	end
+	return nil
+end
+
+local function getSeverityColor(eventInfo)
+	if type(eventInfo) ~= "table" then return nil end
+	local severity = eventInfo.severity
+	if isSecretValue(severity) then return nil end
+	if type(severity) ~= "number" then return nil end
+	if Enum and Enum.EncounterEventSeverity then
+		if severity == Enum.EncounterEventSeverity.High then
+			return L.SEVERITY_HIGH_R, L.SEVERITY_HIGH_G, L.SEVERITY_HIGH_B, L.SEVERITY_HIGH_A
+		elseif severity == Enum.EncounterEventSeverity.Medium then
+			return L.SEVERITY_MED_R, L.SEVERITY_MED_G, L.SEVERITY_MED_B, L.SEVERITY_MED_A
+		elseif severity == Enum.EncounterEventSeverity.Low then
+			return L.SEVERITY_LOW_R, L.SEVERITY_LOW_G, L.SEVERITY_LOW_B, L.SEVERITY_LOW_A
+		end
+	end
+	if severity >= 2 then
+		return L.SEVERITY_HIGH_R, L.SEVERITY_HIGH_G, L.SEVERITY_HIGH_B, L.SEVERITY_HIGH_A
+	elseif severity >= 1 then
+		return L.SEVERITY_MED_R, L.SEVERITY_MED_G, L.SEVERITY_MED_B, L.SEVERITY_MED_A
+	end
+	return L.SEVERITY_LOW_R, L.SEVERITY_LOW_G, L.SEVERITY_LOW_B, L.SEVERITY_LOW_A
+end
+
+local function getRecordBarColor(rec)
+	if not L.SEVERITY_COLOR_ENABLED then
+		return L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A
+	end
+	local eventInfo = rec and rec.eventInfo
+	if L.SEVERITY_COLOR_USE_BLIZZARD then
+		local r, g, b, a = readEventColor(eventInfo)
+		if r then
+			return r, g, b, a
+		end
+	end
+	local r, g, b, a = getSeverityColor(eventInfo)
+	if r then
+		return r, g, b, a
+	end
+	return L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A
+end
+
+local function getIconBorderColor(rec)
+	if not L.SEVERITY_COLOR_ENABLED then
+		return 0, 0, 0, 1
+	end
+	local eventInfo = rec and rec.eventInfo
+	local r, g, b, a
+	if L.SEVERITY_COLOR_USE_BLIZZARD then
+		r, g, b, a = readEventColor(eventInfo)
+	end
+	if not r then
+		r, g, b, a = getSeverityColor(eventInfo)
+	end
+	if not r then
+		return 0, 0, 0, 1
+	end
+	return r, g, b, a
+end
+
 local QUEUED_LABEL = "Queued"
 
 local function isTerminalEventState(state)
@@ -37,7 +118,15 @@ end
 -- Layout
 -- =========================
 local function sortByRemaining(a, b)
-	return (a.remaining or 999999) < (b.remaining or 999999)
+	local ar = a and a.remaining
+	local br = b and b.remaining
+	if type(ar) ~= "number" or isSecretValue(ar) then
+		ar = nil
+	end
+	if type(br) ~= "number" or isSecretValue(br) then
+		br = nil
+	end
+	return (ar or 999999) < (br or 999999)
 end
 
 local function isTestRec(rec)
@@ -221,7 +310,7 @@ end
 
 local function updateRecTiming(rec, remaining)
 	local now = GetTime()
-	if type(remaining) ~= "number" then return end
+	if type(remaining) ~= "number" or isSecretValue(remaining) then return end
 
 	if not rec.duration then
 		rec.duration = remaining
@@ -342,6 +431,34 @@ function M:ensureIcon(rec)
 	refreshIconTexture(rec)
 end
 
+local function barOnUpdate(self)
+	local rec = self.__sbmRec
+	if not rec or rec.barFrame ~= self then return end
+	if rec.isQueued and not rec.isManual then return end
+
+	local dur = rec.duration
+	local start = rec.startTime
+	if type(dur) ~= "number" or type(start) ~= "number" then return end
+	if isSecretValue(dur) or isSecretValue(start) then return end
+
+	local now = (GetTime and GetTime()) or 0
+	local rem = (start + dur) - now
+	if rem < 0 then rem = 0 end
+	if isSecretValue(rem) then return end
+
+	if rec.isManual then
+		local shown = U.clamp(rem, 0, dur)
+		self.sb:SetMinMaxValues(0, dur)
+		self.sb:SetValue(shown)
+		self.rt:SetText(U.formatTimeBar(shown))
+	else
+		local shown = U.clamp(rem, 0, L.THRESHOLD_TO_BAR)
+		self.sb:SetMinMaxValues(0, L.THRESHOLD_TO_BAR)
+		self.sb:SetValue(shown)
+		self.rt:SetText(U.formatTimeBar(shown))
+	end
+end
+
 function M:ensureBar(rec)
 	if rec.barFrame then return end
 	if rec.iconFrame then
@@ -351,6 +468,7 @@ function M:ensureBar(rec)
 
 	local bar = M.acquireBar()
 	bar.__id = rec.id
+	bar.__sbmRec = rec
 	rec.barFrame = bar
 
 	bar.txt:SetText("Ability")
@@ -362,62 +480,7 @@ function M:ensureBar(rec)
 	rec._indicatorDirty = true
 	refreshBarLabelAndIcon(rec)
 	M.setBarFillFlat(bar, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
-
-	bar:SetScript("OnUpdate", function(self)
-		local rrec = M.events[self.__id]
-		if not rrec then return end
-
-		local rem = rrec.remaining
-		if rrec.isManual and rrec.endTime then
-			rem = rrec.endTime - GetTime()
-			if rem < 0 then rem = 0 end
-			rrec.remaining = rem
-		elseif C_EncounterTimeline and C_EncounterTimeline.GetEventTimeRemaining then
-			local ok, v = pcall(C_EncounterTimeline.GetEventTimeRemaining, rrec.id)
-			if ok and type(v) == "number" then
-				rem = v
-				rrec.remaining = v
-			end
-		end
-
-		if type(rem) ~= "number" then rem = 999 end
-		local isQueued = rrec.isQueued and not rrec.isManual
-		if isQueued then
-			self.sb:SetMinMaxValues(0, L.THRESHOLD_TO_BAR)
-			self.sb:SetValue(0)
-			if self.rt._sbmQueued ~= true then
-				self.rt:SetText(QUEUED_LABEL)
-				self.rt._sbmQueued = true
-			end
-			return
-		end
-
-		if rem <= 0 then
-			M:removeEvent(rrec.id)
-			M:LayoutAll()
-			return
-		end
-		if self.rt._sbmQueued then
-			self.rt._sbmQueued = nil
-		end
-
-		if rrec.isManual then
-			local dur = rrec.duration
-			if type(dur) == "number" and dur > 0 then
-				self.sb:SetMinMaxValues(0, dur)
-				self.sb:SetValue(U.clamp(rem, 0, dur))
-			else
-				self.sb:SetMinMaxValues(0, L.THRESHOLD_TO_BAR)
-				self.sb:SetValue(U.clamp(rem, 0, L.THRESHOLD_TO_BAR))
-			end
-			self.rt:SetText(U.formatTimeBar(rem))
-		else
-			local shown = U.clamp(rem, 0, L.THRESHOLD_TO_BAR)
-			self.sb:SetMinMaxValues(0, L.THRESHOLD_TO_BAR)
-			self.sb:SetValue(shown)
-			self.rt:SetText(U.formatTimeBar(shown))
-		end
-	end)
+	bar:SetScript("OnUpdate", barOnUpdate)
 end
 
 function M:updateRecord(eventID, eventInfo, remaining)
@@ -433,7 +496,11 @@ function M:updateRecord(eventID, eventInfo, remaining)
 	end
 
 	rec.eventInfo = eventInfo or rec.eventInfo
-	rec.remaining = remaining or rec.remaining
+	if remaining ~= nil then
+		rec.remaining = remaining
+	end
+	local remainingValue = rec.remaining
+	local remainingIsNumber = type(remainingValue) == "number" and not isSecretValue(remainingValue)
 
 	local isTest = isTestRec(rec)
 	if rec.isManual or isTest then
@@ -459,14 +526,35 @@ function M:updateRecord(eventID, eventInfo, remaining)
 		end
 	end
 
-	if type(rec.remaining) == "number" then
-		updateRecTiming(rec, rec.remaining)
+	if remainingIsNumber then
+		updateRecTiming(rec, remainingValue)
+	end
+
+	if rec.isHidden and not rec.isManual and not isTest then
+		local hadBar = rec.barFrame ~= nil
+		local hadIcon = rec.iconFrame ~= nil
+		if rec.iconFrame then
+			M.releaseIcon(rec.iconFrame)
+			rec.iconFrame = nil
+		end
+		if rec.barFrame then
+			M.releaseBar(rec.barFrame)
+			rec.barFrame = nil
+		end
+		if hadBar or hadIcon then
+			self._layoutDirty = true
+		end
+		return
 	end
 
 	local iconsEnabled = L.ICONS_ENABLED ~= false
 	local wantBar = rec.forceBar
-	if not wantBar and type(rec.remaining) == "number" and rec.remaining <= L.THRESHOLD_TO_BAR then
-		wantBar = true
+	if not wantBar then
+		if remainingIsNumber and remainingValue <= L.THRESHOLD_TO_BAR then
+			wantBar = true
+		elseif not remainingIsNumber then
+			wantBar = rec.barFrame ~= nil
+		end
 	end
 	local hadBar = rec.barFrame ~= nil
 	local hadIcon = rec.iconFrame ~= nil
@@ -494,6 +582,7 @@ function M:updateRecord(eventID, eventInfo, remaining)
 		local f = rec.iconFrame
 		refreshIconTexture(rec)
 		local rem = rec.remaining
+		local remIsNumber = type(rem) == "number" and not isSecretValue(rem)
 		if rec.isQueued and not rec.isManual then
 			if f.timeText._sbmQueued ~= true then
 				f.timeText:SetText(QUEUED_LABEL)
@@ -504,13 +593,13 @@ function M:updateRecord(eventID, eventInfo, remaining)
 			if f.timeText._sbmQueued then
 				f.timeText._sbmQueued = nil
 			end
-			if type(rem) == "number" and rem > 0 then
+			if remIsNumber and rem > 0 then
 				f.timeText:SetText(U.formatTimeIcon(rem))
 				if rec.startTime and rec.duration and rec.duration > 0 then
 					f.cd:SetCooldown(rec.startTime, rec.duration)
 				end
 			else
-				f.timeText:SetText("")
+				f.timeText:SetText(U.formatTimeIcon(rem))
 				f.cd:Clear()
 			end
 		end
@@ -526,16 +615,58 @@ function M:updateRecord(eventID, eventInfo, remaining)
 				rec._indicatorDirty = false
 			end
 		end
+
+		if f.main and M.ensureFullBorder then
+			local br, bg, bb, ba = 0, 0, 0, 1
+			if L.ICON_SEVERITY_BORDER and L.SEVERITY_COLOR_ENABLED then
+				br, bg, bb, ba = getIconBorderColor(rec)
+			end
+			M.ensureFullBorder(f.main, L.ICON_BORDER_THICKNESS, br, bg, bb, ba)
+		end
 	end
 
 	if rec.barFrame then
 		refreshBarLabelAndIcon(rec)
-		if rec.isManual then
-			if type(rec.duration) == "number" and rec.duration > 0 then
-				rec.barFrame.sb:SetMinMaxValues(0, rec.duration)
-				rec.barFrame.sb:SetValue(U.clamp(rec.remaining or rec.duration, 0, rec.duration))
+		local rem = rec.remaining
+		local remIsNumber = type(rem) == "number" and not isSecretValue(rem)
+		if rec.isQueued and not rec.isManual then
+			if rec.barFrame.rt._sbmQueued ~= true then
+				rec.barFrame.rt:SetText(QUEUED_LABEL)
+				rec.barFrame.rt._sbmQueued = true
 			end
-		elseif isTest and M.ApplyTestIndicators then
+			rec.barFrame.sb:SetMinMaxValues(0, L.THRESHOLD_TO_BAR)
+			rec.barFrame.sb:SetValue(0)
+		else
+			if rec.barFrame.rt._sbmQueued then
+				rec.barFrame.rt._sbmQueued = nil
+			end
+			if rec.isManual then
+				if remIsNumber and rem <= 0 then
+					self:removeEvent(rec.id)
+					return
+				end
+				local dur = rec.duration
+				if type(dur) == "number" and dur > 0 then
+					rec.barFrame.sb:SetMinMaxValues(0, dur)
+					rec.barFrame.sb:SetValue(remIsNumber and U.clamp(rem, 0, dur) or 0)
+				else
+					rec.barFrame.sb:SetMinMaxValues(0, L.THRESHOLD_TO_BAR)
+					rec.barFrame.sb:SetValue(remIsNumber and U.clamp(rem, 0, L.THRESHOLD_TO_BAR) or 0)
+				end
+				rec.barFrame.rt:SetText(U.formatTimeBar(rem))
+			else
+				if remIsNumber then
+					local shown = U.clamp(rem, 0, L.THRESHOLD_TO_BAR)
+					rec.barFrame.sb:SetMinMaxValues(0, L.THRESHOLD_TO_BAR)
+					rec.barFrame.sb:SetValue(shown)
+					rec.barFrame.rt:SetText(U.formatTimeBar(shown))
+				else
+					rec.barFrame.rt:SetText(U.formatTimeBar(rem))
+				end
+			end
+		end
+
+		if isTest and M.ApplyTestIndicators then
 			M:ApplyTestIndicators(rec.barFrame, false)
 		else
 			if rec._indicatorDirty or not rec._indicatorAppliedBar then
@@ -544,30 +675,232 @@ function M:updateRecord(eventID, eventInfo, remaining)
 				rec._indicatorDirty = false
 			end
 		end
-		M.setBarFillFlat(rec.barFrame, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
+		local r, g, b, a = getRecordBarColor(rec)
+		M.setBarFillFlat(rec.barFrame, r, g, b, a)
 	end
 end
 
 -- =========================
--- Timeline refresh
+-- Timeline refresh (event-driven)
 -- =========================
-function M:Tick()
-	if not self.enabled then return end
-	if self._testTicker then return end
-	if self.UpdatePrivateAuraFrames then
-		self:UpdatePrivateAuraFrames(true)
+local function canUseTimelineAPI()
+	return C_EncounterTimeline and C_EncounterTimeline.GetEventList
+end
+
+local function isEditModeActive()
+	return EditModeManagerFrame
+		and type(EditModeManagerFrame.IsEditModeActive) == "function"
+		and EditModeManagerFrame:IsEditModeActive()
+end
+
+local function isEditModeEvent(eventInfo)
+	if type(eventInfo) ~= "table" then return false end
+	local source = eventInfo.source
+	if isSecretValue(source) then return false end
+	if Enum and Enum.EncounterTimelineEventSource then
+		return source == Enum.EncounterTimelineEventSource.EditMode
 	end
-	local suppressUntil = self._suppressTimelineUntil
-	if suppressUntil then
-		local now = (GetTime and GetTime()) or 0
-		if now < suppressUntil then
-			return
+	return false
+end
+
+local function isTimelineFeatureEnabled()
+	if not canUseTimelineAPI() then return false end
+	if C_EncounterTimeline.IsFeatureAvailable and not C_EncounterTimeline.IsFeatureAvailable() then
+		return false
+	end
+	return true
+end
+
+local function safeGetEventInfo(eventID)
+	if not (C_EncounterTimeline and C_EncounterTimeline.GetEventInfo) then return nil end
+	local ok, info = pcall(C_EncounterTimeline.GetEventInfo, eventID)
+	if ok then return info end
+	return nil
+end
+
+local function safeGetEventTimer(eventID)
+	if not (C_EncounterTimeline and C_EncounterTimeline.GetEventTimer) then return nil end
+	local ok, timer = pcall(C_EncounterTimeline.GetEventTimer, eventID)
+	if ok then return timer end
+	return nil
+end
+
+local function safeGetEventElapsed(eventID)
+	if not (C_EncounterTimeline and C_EncounterTimeline.GetEventTimeElapsed) then return nil end
+	local ok, elapsed = pcall(C_EncounterTimeline.GetEventTimeElapsed, eventID)
+	if ok then return elapsed end
+	return nil
+end
+
+local function safeGetEventRemaining(eventID, timer)
+	if timer and type(timer.GetRemainingDuration) == "function" then
+		local ok, rem = pcall(timer.GetRemainingDuration, timer)
+		if ok then return rem end
+	end
+	if C_EncounterTimeline and C_EncounterTimeline.GetEventTimeRemaining then
+		local ok, rem = pcall(C_EncounterTimeline.GetEventTimeRemaining, eventID)
+		if ok then return rem end
+	end
+	return nil
+end
+
+local function safeGetEventTrack(eventID)
+	if not (C_EncounterTimeline and C_EncounterTimeline.GetEventTrack) then return nil end
+	local ok, track, sortIndex = pcall(C_EncounterTimeline.GetEventTrack, eventID)
+	if ok then return track, sortIndex end
+	return nil
+end
+
+local function safeGetEventState(eventID)
+	if not (C_EncounterTimeline and C_EncounterTimeline.GetEventState) then return nil end
+	local ok, state = pcall(C_EncounterTimeline.GetEventState, eventID)
+	if ok then return state end
+	return nil
+end
+
+local function safeIsEventBlocked(eventID)
+	if not (C_EncounterTimeline and C_EncounterTimeline.IsEventBlocked) then return nil end
+	local ok, blocked = pcall(C_EncounterTimeline.IsEventBlocked, eventID)
+	if ok then return blocked end
+	return nil
+end
+
+local function safeGetTrackType(track)
+	if not track then return nil end
+	if not (C_EncounterTimeline and C_EncounterTimeline.GetTrackType) then return nil end
+	local ok, trackType = pcall(C_EncounterTimeline.GetTrackType, track)
+	if ok then return trackType end
+	return nil
+end
+
+local function buildVisibleEventSet()
+	if not (C_EncounterTimeline and C_EncounterTimeline.GetSortedEventList) then return nil end
+	local ok, list = pcall(C_EncounterTimeline.GetSortedEventList, nil, nil, false, true)
+	if not (ok and type(list) == "table") then return nil end
+	if #list == 0 then
+		return nil
+	end
+	local set = {}
+	for _, id in ipairs(list) do
+		set[id] = true
+	end
+	return set
+end
+
+local function isEventHidden(eventID, track, trackType, visibleSet)
+	if visibleSet then
+		return not visibleSet[eventID]
+	end
+	if isSecretValue(track) or isSecretValue(trackType) then
+		return false
+	end
+	if Enum and Enum.EncounterTimelineTrackType and trackType == Enum.EncounterTimelineTrackType.Hidden then
+		return true
+	end
+	if Enum and Enum.EncounterTimelineTrack and track == Enum.EncounterTimelineTrack.Indeterminate then
+		return true
+	end
+	return false
+end
+
+function M:ClearTimelineEvents()
+	for id, rec in pairs(self.events) do
+		if not (rec and rec.isManual) then
+			self:removeEvent(id)
 		end
-		self._suppressTimelineUntil = nil
 	end
-	local hasTimeline = C_EncounterTimeline
-		and C_EncounterTimeline.GetEventList
-	if not hasTimeline then return end
+	if self._layoutDirty then
+		self:LayoutAll()
+	end
+end
+
+function M:UpdateTimelineEvent(eventID, eventInfo, visibleSet)
+	if not self.enabled then return end
+	if type(eventID) ~= "number" or eventID == 0 then return end
+
+	local rec = self.events[eventID]
+	local isNew = false
+	if not rec then
+		rec = { id = eventID }
+		self.events[eventID] = rec
+		isNew = true
+	end
+
+	if eventInfo == nil and rec.eventInfo == nil then
+		eventInfo = safeGetEventInfo(eventID)
+	end
+	if eventInfo ~= nil then
+		rec.eventInfo = eventInfo
+	end
+
+	if rec.eventInfo and isEditModeEvent(rec.eventInfo) and not self._allowEditModeEvents then
+		self:removeEvent(eventID)
+		return
+	end
+	if rec.eventInfo and not self._allowEditModeEvents then
+		local label = U.safeGetLabel(rec.eventInfo)
+		if type(label) == "string" and not isSecretValue(label) then
+			if label:find("Boss Timeline Preview", 1, true) then
+				self:removeEvent(eventID)
+				return
+			end
+		end
+	end
+
+	if rec.eventInfo and type(rec.eventInfo.duration) == "number" and not isSecretValue(rec.eventInfo.duration) then
+		rec.duration = rec.eventInfo.duration
+	end
+
+	rec.isTest = self._testTimelineEventIDSet and self._testTimelineEventIDSet[eventID] or false
+
+	rec._eventTimer = rec._eventTimer or safeGetEventTimer(eventID)
+
+	local track, sortIndex = safeGetEventTrack(eventID)
+	local state = safeGetEventState(eventID)
+	local blocked = safeIsEventBlocked(eventID)
+	local trackType = (not isSecretValue(track)) and safeGetTrackType(track) or nil
+
+	rec._timelineTrack = track
+	rec._timelineTrackSortIndex = sortIndex
+	rec._timelineState = state
+	rec._timelineBlocked = blocked
+	rec._timelineTrackType = trackType
+
+	if not (isSecretValue(track) or isSecretValue(state)) then
+		rec.isQueued = isQueuedTrack(track) and not isTerminalEventState(state)
+	end
+
+	rec.isHidden = isEventHidden(eventID, track, trackType, visibleSet)
+
+	local rem = safeGetEventRemaining(eventID, rec._eventTimer)
+	if (rem == nil or isSecretValue(rem)) and rec.duration then
+		local elapsed = safeGetEventElapsed(eventID)
+		if type(elapsed) == "number" and not isSecretValue(elapsed) then
+			rem = rec.duration - elapsed
+		end
+	end
+	if type(rem) == "number" and not isSecretValue(rem) and rem < 0 then
+		rem = 0
+	end
+	if rem ~= nil then
+		rec.remaining = rem
+	end
+
+	self:updateRecord(eventID, rec.eventInfo, rec.remaining)
+	if isNew then
+		self._layoutDirty = true
+	end
+end
+
+function M:RefreshTimelineEvents()
+	if not canUseTimelineAPI() then return end
+
+	self._timelineFeatureEnabled = isTimelineFeatureEnabled()
+	self._allowEditModeEvents = isEditModeActive()
+	if not self._timelineFeatureEnabled then
+		self:ClearTimelineEvents()
+		return
+	end
 
 	local list
 	do
@@ -576,17 +909,9 @@ function M:Tick()
 			list = result
 		end
 	end
+
 	if type(list) ~= "table" or #list == 0 then
-		if next(self.events) ~= nil then
-			for id, rec in pairs(self.events) do
-				if not (rec and rec.isManual) then
-					self:removeEvent(id)
-				end
-			end
-		end
-		if self._layoutDirty then
-			self:LayoutAll()
-		end
+		self:ClearTimelineEvents()
 		return
 	end
 
@@ -597,45 +922,117 @@ function M:Tick()
 	else
 		wipe(seen)
 	end
+
+	local visibleSet = buildVisibleEventSet()
+
 	for _, eventID in ipairs(list) do
 		seen[eventID] = true
-		local rec = self.events[eventID]
-		if not rec then
-			rec = { id = eventID }
-			self.events[eventID] = rec
-			self._layoutDirty = true
-		end
-
-		local info = C_EncounterTimeline.GetEventInfo and C_EncounterTimeline.GetEventInfo(eventID) or nil
-		rec.isTest = self._testTimelineEventIDSet and self._testTimelineEventIDSet[eventID] or false
-		do
-			local track, state
-			if C_EncounterTimeline.GetEventTrack then
-				local ok, tr = pcall(C_EncounterTimeline.GetEventTrack, eventID)
-				if ok then
-					track = tr
-				end
-			end
-			if C_EncounterTimeline.GetEventState then
-				local ok, st = pcall(C_EncounterTimeline.GetEventState, eventID)
-				if ok then
-					state = st
-				end
-			end
-			rec._timelineTrack = track
-			rec._timelineState = state
-			rec.isQueued = isQueuedTrack(track) and not isTerminalEventState(state)
-		end
-		local rem = C_EncounterTimeline.GetEventTimeRemaining and C_EncounterTimeline.GetEventTimeRemaining(eventID) or nil
-		self:updateRecord(eventID, info, rem)
+		local info = safeGetEventInfo(eventID)
+		self:UpdateTimelineEvent(eventID, info, visibleSet)
 	end
 
-	for id in pairs(self.events) do
-		local rec = self.events[id]
+	for id, rec in pairs(self.events) do
 		if not seen[id] and not (rec and rec.isManual) then
 			self:removeEvent(id)
 		end
 	end
+
+	if self._layoutDirty then
+		self:LayoutAll()
+	end
+end
+
+function M:HandleTimelineEvent(event, ...)
+	if event == "ENCOUNTER_TIMELINE_EVENT_ADDED" then
+		local info = ...
+		if type(info) == "table" then
+			self:UpdateTimelineEvent(info.id, info)
+		end
+	elseif event == "ENCOUNTER_TIMELINE_EVENT_REMOVED" then
+		local eventID = ...
+		local rec = self.events[eventID]
+		if rec and not rec.isManual then
+			self:removeEvent(eventID)
+		end
+	elseif event == "ENCOUNTER_TIMELINE_EVENT_STATE_CHANGED" then
+		local eventID = ...
+		self:UpdateTimelineEvent(eventID, nil)
+	elseif event == "ENCOUNTER_TIMELINE_EVENT_TRACK_CHANGED" then
+		local eventID = ...
+		self:UpdateTimelineEvent(eventID, nil)
+	elseif event == "ENCOUNTER_TIMELINE_EVENT_BLOCK_STATE_CHANGED" then
+		local eventID = ...
+		self:UpdateTimelineEvent(eventID, nil)
+	elseif event == "ENCOUNTER_TIMELINE_EVENT_HIGHLIGHT" then
+		local eventID = ...
+		local rec = self.events[eventID]
+		if rec then
+			rec._highlightedAt = GetTime()
+		end
+	elseif event == "ENCOUNTER_TIMELINE_LAYOUT_UPDATED"
+		or event == "ENCOUNTER_TIMELINE_STATE_UPDATED" then
+		self:RefreshTimelineEvents()
+	elseif event == "ENCOUNTER_TIMELINE_VIEW_ACTIVATED" then
+		self._timelineViewActive = true
+		self:RefreshTimelineEvents()
+	elseif event == "ENCOUNTER_TIMELINE_VIEW_DEACTIVATED" then
+		self._timelineViewActive = false
+	end
+
+	if self._layoutDirty then
+		self:LayoutAll()
+	end
+end
+
+function M:Tick()
+	if not self.enabled then return end
+	if self._testTicker then return end
+	if self.UpdatePrivateAuraFrames then
+		self:UpdatePrivateAuraFrames(true)
+	end
+
+	local suppressUntil = self._suppressTimelineUntil
+	if suppressUntil then
+		local now = (GetTime and GetTime()) or 0
+		if now < suppressUntil then
+			return
+		end
+		self._suppressTimelineUntil = nil
+	end
+
+	local hasTimeline = canUseTimelineAPI() and (self._timelineFeatureEnabled ~= false)
+	local now = (GetTime and GetTime()) or 0
+
+	for id, rec in pairs(self.events) do
+		if rec.isManual and rec.endTime then
+			local rem = rec.endTime - now
+			if rem < 0 then rem = 0 end
+			rec.remaining = rem
+			if not isSecretValue(rem) and rem <= 0 then
+				self:removeEvent(id)
+			else
+				self:updateRecord(id, rec.eventInfo, rec.remaining)
+			end
+	elseif hasTimeline then
+		local rem = safeGetEventRemaining(id, rec._eventTimer)
+		if (rem == nil or isSecretValue(rem)) and rec.duration then
+			local elapsed = safeGetEventElapsed(id)
+			if type(elapsed) == "number" and not isSecretValue(elapsed) then
+				rem = rec.duration - elapsed
+			end
+		end
+		if type(rem) == "number" and not isSecretValue(rem) and rem < 0 then
+			rem = 0
+		end
+		if rem ~= nil then
+			rec.remaining = rem
+		end
+		self:updateRecord(id, rec.eventInfo, rec.remaining)
+		if rec._timelineState and not isSecretValue(rec._timelineState) and isTerminalEventState(rec._timelineState) then
+			self:removeEvent(id)
+		end
+	end
+end
 
 	if self._layoutDirty then
 		self:LayoutAll()
