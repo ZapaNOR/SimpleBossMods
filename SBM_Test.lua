@@ -162,6 +162,7 @@ end
 
 function M:StopTest()
 	self._testActive = nil
+	self._testSourceConnectorID = nil
 	if self._testTicker then
 		self._testTicker:Cancel()
 		self._testTicker = nil
@@ -199,15 +200,24 @@ function M:StartTest()
 
 	if self.StartEditModeTimelineTest then
 		if self:StartEditModeTimelineTest() then
+			self._testSourceConnectorID = "timeline"
 			return
 		end
 	end
 
 	if canUseTimelineScriptEvents() and self.PushTestTimelineEvents then
 		if self:PushTestTimelineEvents() then
+			self._testSourceConnectorID = "timeline"
 			C_Timer.After(0, function() M:Tick() end)
 			return
 		end
+	end
+
+	if self.ClearTestTimelineEvents then
+		self:ClearTestTimelineEvents()
+	end
+	if self.ClearEditModeTimelineEvents then
+		self:ClearEditModeTimelineEvents()
 	end
 
 	local base = (math.floor(GetTime() * 1000) % 1000000) + 9100000
@@ -254,22 +264,8 @@ function M:StartTest()
 			rec.remaining = rem
 
 			if rem > 0 then
-				M._updateRecTiming(rec, rem)
 				anyActive = true
-
-				if rem <= L.THRESHOLD_TO_BAR then
-					M:ensureBar(rec)
-				else
-					M:ensureIcon(rec)
-				end
-
-				-- Test indicators (fixed 3 icons)
-				if rec.iconFrame then
-					M:ApplyTestIndicators(rec.iconFrame, true)
-				end
-				if rec.barFrame then
-					M:ApplyTestIndicators(rec.barFrame, false)
-				end
+				M:updateRecord(t.id, rec.eventInfo, rem)
 			else
 				M:removeEvent(t.id)
 			end

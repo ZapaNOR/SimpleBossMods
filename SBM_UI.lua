@@ -248,7 +248,6 @@ function M:UpdatePrivateAuraAnchor()
 		privateAurasAnchor:Show()
 		hidePrivateAuraOverlays(self)
 		hideTestPrivateAuraFrames(self)
-		self._privateAuraLastCount = 0
 		return
 	end
 
@@ -283,7 +282,7 @@ function M:UpdatePrivateAuraAnchor()
 	end
 
 	if self.UpdatePrivateAuraFrames then
-		self:UpdatePrivateAuraFrames(false)
+		self:UpdatePrivateAuraFrames()
 	end
 	if self.UpdateTestPrivateAura then
 		self:UpdateTestPrivateAura()
@@ -425,11 +424,10 @@ function M:UpdatePrivateAuraOverlays(visibleCount)
 	end
 end
 
-function M:UpdatePrivateAuraFrames(playSound)
+function M:UpdatePrivateAuraFrames()
 	if not L.PRIVATE_AURA_ENABLED then
 		hidePrivateAuraOverlays(self)
 		hideTestPrivateAuraFrames(self)
-		self._privateAuraLastCount = 0
 		return
 	end
 	if not privateAurasAnchor then return end
@@ -445,15 +443,6 @@ function M:UpdatePrivateAuraFrames(playSound)
 	end
 	if self.UpdatePrivateAuraOverlays then
 		self:UpdatePrivateAuraOverlays(count)
-	end
-	if self._privateAuraSoundUsesCount then
-		local prev = self._privateAuraLastCount
-		self._privateAuraLastCount = count
-		if playSound and L.PRIVATE_AURA_SOUND and L.PRIVATE_AURA_SOUND ~= 0 then
-			if prev ~= nil and count > prev then
-				self:PlayPrivateAuraSound()
-			end
-		end
 	end
 end
 
@@ -534,170 +523,6 @@ function M:ShowTestPrivateAura(show)
 			f:Hide()
 		end
 	end
-end
-
-function M:PlayPrivateAuraSound()
-	if not L.PRIVATE_AURA_ENABLED then return end
-	local sound = L.PRIVATE_AURA_SOUND
-	if not sound or sound == 0 then return end
-	local now = GetTime and GetTime() or 0
-	if self._privateAuraLastSoundAt and now > 0 and (now - self._privateAuraLastSoundAt) < 0.1 then
-		return
-	end
-	self._privateAuraLastSoundAt = now
-	local channel = L.PRIVATE_AURA_SOUND_CHANNEL or "Master"
-	if type(sound) == "number" then
-		local played = false
-		if PlaySoundFile then
-			local ok, willPlay = pcall(PlaySoundFile, sound, channel)
-			played = ok and willPlay or false
-		end
-		local playSound = PlaySound or (C_Sound and C_Sound.PlaySound)
-		if not played and playSound then
-			local ok, willPlay = pcall(playSound, sound, channel)
-			if not (ok and willPlay) then
-				pcall(playSound, sound)
-			end
-		end
-	elseif type(sound) == "string" then
-		if PlaySoundFile then
-			pcall(PlaySoundFile, sound, channel)
-		end
-	end
-end
-
-function M:RegisterPrivateAuraSoundForSpell(spellId)
-	if not spellId or spellId == 0 then return false, false end
-	self._privateAuraKnownSpells = self._privateAuraKnownSpells or {}
-	self._privateAuraKnownSpells[spellId] = true
-
-	if not L.PRIVATE_AURA_ENABLED then
-		return false, false
-	end
-
-	if not (C_UnitAuras and C_UnitAuras.AddPrivateAuraAppliedSound) then
-		self._privateAuraSoundManualFallback = true
-		return false, false
-	end
-
-	local sound = L.PRIVATE_AURA_SOUND
-	if not sound or sound == 0 then return false, false end
-
-	self._privateAuraSoundRegistered = self._privateAuraSoundRegistered or {}
-	if self._privateAuraSoundRegistered[spellId] then return true, false end
-
-	local info = {
-		spellID = spellId,
-		unitToken = "player",
-		outputChannel = (L.PRIVATE_AURA_SOUND_CHANNEL or "Master"):lower(),
-	}
-	if type(sound) == "number" then
-		info.soundFileID = sound
-	elseif type(sound) == "string" then
-		info.soundFileName = sound
-	else
-		return false, false
-	end
-
-	local ok, id = pcall(C_UnitAuras.AddPrivateAuraAppliedSound, info)
-	if ok and id then
-		self._privateAuraSoundIDs = self._privateAuraSoundIDs or {}
-		self._privateAuraSoundIDs[#self._privateAuraSoundIDs + 1] = id
-		self._privateAuraSoundRegistered[spellId] = id
-		return true, true
-	end
-
-	self._privateAuraSoundManualFallback = true
-	return false, false
-end
-
-function M:ResetPrivateAuraSoundRegistrations()
-	if self._privateAuraSoundIDs and C_UnitAuras and C_UnitAuras.RemovePrivateAuraAppliedSound then
-		for _, id in ipairs(self._privateAuraSoundIDs) do
-			pcall(C_UnitAuras.RemovePrivateAuraAppliedSound, id)
-		end
-	end
-	self._privateAuraSoundIDs = {}
-	self._privateAuraSoundRegistered = {}
-	self._privateAuraSoundManualFallback = false
-
-	if not L.PRIVATE_AURA_ENABLED then
-		return
-	end
-	if self._privateAuraKnownSpells then
-		for spellId in pairs(self._privateAuraKnownSpells) do
-			self:RegisterPrivateAuraSoundForSpell(spellId)
-		end
-	end
-end
-
-function M:SetupPrivateAuraSoundWatcher()
-	if IsAddOnLoaded and IsAddOnLoaded("Blizzard_PrivateAurasUI") then
-		self._privateAuraSoundBlizzardLoaded = true
-	elseif self._privateAuraSoundBlizzardLoaded == nil then
-		self._privateAuraSoundBlizzardLoaded = false
-	end
-	if not L.PRIVATE_AURA_ENABLED then
-		return
-	end
-	if self._privateAuraSoundCallbackRegistered then return end
-	if C_UnitAurasPrivate and C_UnitAurasPrivate.AddPrivateAuraUpdateCallback then
-		local callback = self._privateAuraSoundCallback
-		if not callback then
-			local function onUpdate(updateInfo)
-				if not L.PRIVATE_AURA_ENABLED then return end
-				if not updateInfo then return end
-				if updateInfo.addedAuras and #updateInfo.addedAuras > 0 then
-					local played = false
-					local blizzLoaded = IsAddOnLoaded and IsAddOnLoaded("Blizzard_PrivateAurasUI")
-					for _, aura in ipairs(updateInfo.addedAuras) do
-						local spellId = aura.spellId or aura.spellID
-						if spellId then
-							local _, isNew = self:RegisterPrivateAuraSoundForSpell(spellId)
-							local needsManual = self._privateAuraSoundManualFallback
-							if not needsManual then
-								if not blizzLoaded then
-									needsManual = true
-								elseif self._privateAuraSoundBlizzardLoaded and isNew then
-									needsManual = true
-								end
-							end
-							if needsManual and not played then
-								self:PlayPrivateAuraSound()
-								played = true
-							end
-						end
-					end
-				end
-			end
-
-			callback = onUpdate
-			if C_FunctionContainers and C_FunctionContainers.CreateCallback then
-				callback = C_FunctionContainers.CreateCallback(onUpdate)
-			end
-			self._privateAuraSoundCallback = callback
-		end
-
-		local ok = pcall(C_UnitAurasPrivate.AddPrivateAuraUpdateCallback, "player", callback)
-		if ok then
-			self._privateAuraSoundCallbackRegistered = true
-			self._privateAuraSoundUsesCount = false
-			if C_UnitAurasPrivate.GetAllPrivateAuras then
-				local okList, list = pcall(C_UnitAurasPrivate.GetAllPrivateAuras, "player")
-				if okList and type(list) == "table" then
-					for _, aura in ipairs(list) do
-						local spellId = aura.spellId or aura.spellID
-						if spellId then
-							self:RegisterPrivateAuraSoundForSpell(spellId)
-						end
-					end
-				end
-			end
-			return
-		end
-	end
-
-	self._privateAuraSoundUsesCount = true
 end
 
 -- =========================
@@ -951,7 +776,8 @@ end
 
 local function applyIndicatorsToIconFrame(iconFrame, eventID)
 	if not iconFrame or not iconFrame.indicatorsFrame then return end
-	if type(eventID) ~= "number" then return end
+	local idType = type(eventID)
+	if idType ~= "number" and idType ~= "string" then return end
 
 	local textures = ensureIndicatorTextures(iconFrame.indicatorsFrame, C.INDICATOR_MAX)
 	for i = 1, C.INDICATOR_MAX do
@@ -971,7 +797,8 @@ end
 
 local function applyIndicatorsToBarEnd(barFrame, eventID)
 	if not barFrame or not barFrame.endIndicatorsFrame then return end
-	if type(eventID) ~= "number" then return end
+	local idType = type(eventID)
+	if idType ~= "number" and idType ~= "string" then return end
 
 	local textures = ensureIndicatorTextures(barFrame.endIndicatorsFrame, C.INDICATOR_MAX)
 
@@ -1100,20 +927,30 @@ local function setBarFillFlat(barFrame, r, g, b, a)
 	if not barFrame or not barFrame.sb then return end
 	local texPath = L.BAR_TEX or C.BAR_TEX_DEFAULT or "Interface\\Buttons\\WHITE8X8"
 	local aa = a or 1
-	if barFrame.__sbmBarTex == texPath
-		and barFrame.__sbmBarR == r
-		and barFrame.__sbmBarG == g
-		and barFrame.__sbmBarB == b
-		and barFrame.__sbmBarA == aa
-		and barFrame.sbTex then
-		return
+	local hasSecret = type(issecretvalue) == "function" and (
+		issecretvalue(r) or issecretvalue(g) or issecretvalue(b) or issecretvalue(aa)
+	)
+	if not hasSecret then
+		if barFrame.__sbmBarTex == texPath
+			and barFrame.__sbmBarR == r
+			and barFrame.__sbmBarG == g
+			and barFrame.__sbmBarB == b
+			and barFrame.__sbmBarA == aa
+			and barFrame.sbTex then
+			return
+		end
+		barFrame.__sbmBarTex = texPath
+		barFrame.__sbmBarR = r
+		barFrame.__sbmBarG = g
+		barFrame.__sbmBarB = b
+		barFrame.__sbmBarA = aa
+	else
+		barFrame.__sbmBarTex = nil
+		barFrame.__sbmBarR = nil
+		barFrame.__sbmBarG = nil
+		barFrame.__sbmBarB = nil
+		barFrame.__sbmBarA = nil
 	end
-
-	barFrame.__sbmBarTex = texPath
-	barFrame.__sbmBarR = r
-	barFrame.__sbmBarG = g
-	barFrame.__sbmBarB = b
-	barFrame.__sbmBarA = aa
 
 	barFrame.sb:SetStatusBarTexture(texPath)
 	local tex = barFrame.sb:GetStatusBarTexture()
@@ -1146,9 +983,87 @@ local function getEventRecordFromFrame(frame)
 end
 
 local function trySetSpellTooltip(spellID)
-	if not (GameTooltip and GameTooltip.SetSpellByID) then return false end
-	local ok = pcall(GameTooltip.SetSpellByID, GameTooltip, spellID)
-	return ok
+	if not GameTooltip then return false end
+	if isSecretValue(spellID) then
+		if not GameTooltip.SetSpellByID then return false end
+		local ok, result = pcall(GameTooltip.SetSpellByID, GameTooltip, spellID)
+		return ok and result ~= false
+	end
+
+	local numeric = tonumber(spellID)
+	if type(numeric) ~= "number" or numeric <= 0 then
+		return false
+	end
+
+	if GameTooltip.SetSpellByID then
+		local ok, result = pcall(GameTooltip.SetSpellByID, GameTooltip, numeric)
+		if ok and result ~= false then
+			return true
+		end
+	end
+
+	if GameTooltip.SetHyperlink then
+		local linkID = math.floor(numeric + 0.5)
+		local ok = pcall(GameTooltip.SetHyperlink, GameTooltip, "spell:" .. tostring(linkID))
+		if ok then
+			return true
+		end
+	end
+
+	return false
+end
+
+local function parseTooltipSpellID(value)
+	if isSecretValue(value) then
+		local ok, asString = pcall(tostring, value)
+		if not ok or type(asString) ~= "string" then
+			return nil
+		end
+		local trimmedSecret = asString:match("^%s*(.-)%s*$")
+		if trimmedSecret == "" then
+			return nil
+		end
+		local secretNumeric = tonumber(trimmedSecret)
+			or tonumber(trimmedSecret:match("^spell:(%d+)$"))
+			or tonumber(trimmedSecret:match("^Timer(%d+)"))
+			or tonumber(trimmedSecret:match("^Timerej(%d+)"))
+			or tonumber(trimmedSecret:match("^ej(%d+)$"))
+		if secretNumeric and secretNumeric > 0 then
+			return secretNumeric
+		end
+		return nil
+	end
+
+	if type(value) == "number" then
+		if value > 0 then
+			return value
+		end
+		return nil
+	end
+
+	if type(value) ~= "string" then
+		return nil
+	end
+
+	local trimmed = value:match("^%s*(.-)%s*$")
+	if trimmed == "" then
+		return nil
+	end
+
+	local numeric = tonumber(trimmed)
+	if numeric and numeric > 0 then
+		return numeric
+	end
+
+	numeric = tonumber(trimmed:match("^spell:(%d+)$"))
+		or tonumber(trimmed:match("^Timer(%d+)"))
+		or tonumber(trimmed:match("^Timerej(%d+)"))
+		or tonumber(trimmed:match("^ej(%d+)$"))
+	if numeric and numeric > 0 then
+		return numeric
+	end
+
+	return nil
 end
 
 local function showEventTooltip(self)
@@ -1164,11 +1079,9 @@ local function showEventTooltip(self)
 	local eventInfo = rec.eventInfo
 	local usedSpell = false
 	if eventInfo then
-		local spellID = eventInfo.spellID
-		if isSecretValue(spellID) then
-			usedSpell = trySetSpellTooltip(spellID)
-		elseif type(spellID) == "number" and spellID > 0 then
-			usedSpell = trySetSpellTooltip(spellID)
+		local parsedSpellID = parseTooltipSpellID(eventInfo.spellID)
+		if parsedSpellID ~= nil then
+			usedSpell = trySetSpellTooltip(parsedSpellID)
 		end
 	end
 
@@ -1259,6 +1172,18 @@ local function acquireIcon()
 		tf:SetFrameLevel(cd:GetFrameLevel() + 10)
 		f.textOverlay = tf
 
+		local pauseIcon = tf:CreateTexture(nil, "OVERLAY")
+		pauseIcon:SetTexture(C.PAUSE_STATE_ICON)
+		pauseIcon:SetPoint("TOPRIGHT", tf, "TOPRIGHT", -2, -2)
+		pauseIcon:Hide()
+		f.pauseIcon = pauseIcon
+
+		local blockedIcon = tf:CreateTexture(nil, "OVERLAY")
+		blockedIcon:SetTexture(C.BLOCKED_STATE_ICON)
+		blockedIcon:SetPoint("TOPRIGHT", tf, "TOPRIGHT", -2, -2)
+		blockedIcon:Hide()
+		f.blockedIcon = blockedIcon
+
 		local tt = tf:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 		tt:SetPoint("CENTER", tf, "CENTER", 0, 0)
 		tt:SetTextColor(1, 1, 1, 1)
@@ -1291,6 +1216,12 @@ local function acquireIcon()
 	if f.indicatorsFrame and f.textOverlay then
 		f.indicatorsFrame:SetFrameLevel(f.textOverlay:GetFrameLevel() + 10)
 	end
+	if f.pauseIcon and f.textOverlay then
+		f.pauseIcon:SetDrawLayer("OVERLAY")
+	end
+	if f.blockedIcon and f.textOverlay then
+		f.blockedIcon:SetDrawLayer("OVERLAY")
+	end
 
 	applyIconFont(f.timeText)
 	f:Show()
@@ -1303,8 +1234,15 @@ local function releaseIcon(f)
 	f:ClearAllPoints()
 	f.__id = nil
 	f.tex:SetTexture(nil)
+	if f.tex.SetDesaturated then
+		f.tex:SetDesaturated(false)
+	end
+	f.tex:SetVertexColor(1, 1, 1, 1)
+	ensureFullBorder(f.main, L.ICON_BORDER_THICKNESS, 0, 0, 0, 1)
 	if f.cd then f.cd:Clear() end
 	if f.timeText then f.timeText:SetText("") end
+	if f.pauseIcon then f.pauseIcon:Hide() end
+	if f.blockedIcon then f.blockedIcon:Hide() end
 
 	if f.indicatorsFrame and f.indicatorsFrame.__indicatorTextures then
 		for _, tex in ipairs(f.indicatorsFrame.__indicatorTextures) do
@@ -1425,6 +1363,9 @@ end
 
 local function releaseBar(f)
 	if not f then return end
+	if M and M.ClearBarAnimation then
+		M:ClearBarAnimation(f)
+	end
 	f:Hide()
 	f:ClearAllPoints()
 	f.__id = nil

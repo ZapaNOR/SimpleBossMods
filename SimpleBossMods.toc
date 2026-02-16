@@ -9,10 +9,15 @@
 ## SavedVariables: SimpleBossModsDB
 ## X-Wago-ID: 5NR8exK3
 ## X-Curse-Project-ID: 1437959
+## OptionalDeps: BigWigs, DBM-Core
 
 Libraries/Init.xml
 
 SimpleBossMods.lua
+Connectors/ConnectorManager.lua
+Connectors/Timeline.lua
+Connectors/BigWigs.lua
+Connectors/DBM.lua
 SBM_UI.lua
 SBM_Layout.lua
 SBM_Test.lua

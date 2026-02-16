@@ -17,8 +17,6 @@ if LSM then
 	LSM:Register("font", "SBM Expressway", "Interface\\AddOns\\SimpleBossMods\\media\\fonts\\Expressway.ttf")
 	LSM:Register("statusbar", "SBM Flat", "Interface\\Buttons\\WHITE8X8")
 	LSM:Register("statusbar", "SBM Default", "Interface\\TARGETINGFRAME\\UI-StatusBar")
-	LSM:Register("sound", "SBM: None", 0)
-	LSM:Register("sound", "SBM: Raid Warning", 567397)
 end
 
 -- Font
@@ -43,6 +41,10 @@ C.BREAK_ICON = "Interface\\Icons\\INV_Misc_DeliciousPizza"
 C.PULL_LABEL = "Pull"
 C.BREAK_LABEL = "Break"
 
+-- State icons (large icon overlays)
+C.PAUSE_STATE_ICON = "Interface\\AddOns\\SimpleBossMods\\media\\icons\\pause.png"
+C.BLOCKED_STATE_ICON = "Interface\\AddOns\\SimpleBossMods\\media\\icons\\dnd.png"
+
 -- Indicators
 C.INDICATOR_MAX = 6
 C.INDICATOR_MASK = 1023 -- all bits
@@ -56,21 +58,26 @@ C.BAR_END_INDICATOR_GAP_X = 6
 C.BAR_FG_R, C.BAR_FG_G, C.BAR_FG_B, C.BAR_FG_A = (255/255), (152/255), (0/255), 1.0
 C.BAR_BG_R, C.BAR_BG_G, C.BAR_BG_B, C.BAR_BG_A = 0.0, 0.0, 0.0, 0.90
 
-local SOUND_CHANNELS = {
-	Master = "Master",
-	MASTER = "Master",
-	SFX = "SFX",
-	Music = "Music",
-	MUSIC = "Music",
-	Ambience = "Ambience",
-	AMBIENCE = "Ambience",
-	Dialog = "Dialog",
-	DIALOG = "Dialog",
-}
+local function normalizeConnectorID(id)
+	if type(id) ~= "string" then
+		return nil
+	end
+	id = id:lower()
+	if id == "timeline" or id == "bigwigs" or id == "dbm" then
+		return id
+	end
+	return nil
+end
 
-function M.NormalizeSoundChannel(channel)
-	if type(channel) ~= "string" then return nil end
-	return SOUND_CHANNELS[channel]
+local function normalizeBigWigsColorMode(mode)
+	if type(mode) ~= "string" then
+		return "normal"
+	end
+	mode = mode:lower()
+	if mode == "emphasized" then
+		return "emphasized"
+	end
+	return "normal"
 end
 
 M.Defaults = M.Defaults or {
@@ -80,6 +87,15 @@ M.Defaults = M.Defaults or {
 			autoInsertKeystone = false,
 			thresholdToBar = C.THRESHOLD_TO_BAR,
 			font = "SBM Expressway",
+		},
+		connectors = {
+			provider = "timeline",
+			useRecommendedSettings = true,
+			disableBlizzardTimeline = false,
+			useDBMColors = true,
+			bigWigsColorMode = "normal",
+			hideBigWigsBars = true,
+			hideDBMBars = true,
 		},
 		icons = {
 			enabled = true,
@@ -129,6 +145,13 @@ M.Defaults = M.Defaults or {
 				a = C.BAR_BG_A,
 			},
 		},
+		colors = {
+			severity = {
+				low = { r = 0.22, g = 0.78, b = 0.22, a = 1.0 },
+				medium = { r = C.BAR_FG_R, g = C.BAR_FG_G, b = C.BAR_FG_B, a = C.BAR_FG_A },
+				high = { r = 0.90, g = 0.24, b = 0.24, a = 1.0 },
+			},
+		},
 		indicators = { iconSize = 10, barSize = 20 },
 		privateAuras = {
 			enabled = true,
@@ -141,8 +164,6 @@ M.Defaults = M.Defaults or {
 			anchorTo = "BOTTOMLEFT",
 			anchorParent = "SimpleBossMods_Icons",
 			customParent = "",
-			sound = "SBM: Raid Warning",
-			soundChannel = "Master",
 		},
 		combatTimer = {
 			enabled = false,
@@ -180,6 +201,38 @@ function M:EnsureDefaults()
 	end
 	if cfg.general.font == nil then
 		cfg.general.font = M.Defaults.cfg.general.font
+	end
+	cfg.connectors = cfg.connectors or {
+		provider = M.Defaults.cfg.connectors.provider,
+		useRecommendedSettings = M.Defaults.cfg.connectors.useRecommendedSettings,
+		disableBlizzardTimeline = M.Defaults.cfg.connectors.disableBlizzardTimeline,
+		useDBMColors = M.Defaults.cfg.connectors.useDBMColors,
+		bigWigsColorMode = M.Defaults.cfg.connectors.bigWigsColorMode,
+		hideBigWigsBars = M.Defaults.cfg.connectors.hideBigWigsBars,
+		hideDBMBars = M.Defaults.cfg.connectors.hideDBMBars,
+	}
+	do
+		local provider = normalizeConnectorID(cfg.connectors.provider)
+		if not provider then
+			provider = M.Defaults.cfg.connectors.provider
+		end
+		cfg.connectors.provider = provider
+		if cfg.connectors.useRecommendedSettings == nil then
+			cfg.connectors.useRecommendedSettings = M.Defaults.cfg.connectors.useRecommendedSettings
+		end
+		if cfg.connectors.disableBlizzardTimeline == nil then
+			cfg.connectors.disableBlizzardTimeline = M.Defaults.cfg.connectors.disableBlizzardTimeline
+		end
+		if cfg.connectors.useDBMColors == nil then
+			cfg.connectors.useDBMColors = M.Defaults.cfg.connectors.useDBMColors
+		end
+		cfg.connectors.bigWigsColorMode = normalizeBigWigsColorMode(cfg.connectors.bigWigsColorMode or M.Defaults.cfg.connectors.bigWigsColorMode)
+		if cfg.connectors.hideBigWigsBars == nil then
+			cfg.connectors.hideBigWigsBars = M.Defaults.cfg.connectors.hideBigWigsBars
+		end
+		if cfg.connectors.hideDBMBars == nil then
+			cfg.connectors.hideDBMBars = M.Defaults.cfg.connectors.hideDBMBars
+		end
 	end
 	cfg.icons = cfg.icons or {
 		size = M.Defaults.cfg.icons.size,
@@ -333,6 +386,67 @@ function M:EnsureDefaults()
 	end
 	repairColor(cfg.bars.color, M.Defaults.cfg.bars.color.r, M.Defaults.cfg.bars.color.g, M.Defaults.cfg.bars.color.b, M.Defaults.cfg.bars.color.a)
 	repairColor(cfg.bars.bgColor, M.Defaults.cfg.bars.bgColor.r, M.Defaults.cfg.bars.bgColor.g, M.Defaults.cfg.bars.bgColor.b, M.Defaults.cfg.bars.bgColor.a)
+	cfg.colors = cfg.colors or {
+		severity = {
+			low = {
+				r = M.Defaults.cfg.colors.severity.low.r,
+				g = M.Defaults.cfg.colors.severity.low.g,
+				b = M.Defaults.cfg.colors.severity.low.b,
+				a = M.Defaults.cfg.colors.severity.low.a,
+			},
+			medium = {
+				r = M.Defaults.cfg.colors.severity.medium.r,
+				g = M.Defaults.cfg.colors.severity.medium.g,
+				b = M.Defaults.cfg.colors.severity.medium.b,
+				a = M.Defaults.cfg.colors.severity.medium.a,
+			},
+			high = {
+				r = M.Defaults.cfg.colors.severity.high.r,
+				g = M.Defaults.cfg.colors.severity.high.g,
+				b = M.Defaults.cfg.colors.severity.high.b,
+				a = M.Defaults.cfg.colors.severity.high.a,
+			},
+		},
+	}
+	cfg.colors.severity = cfg.colors.severity or {}
+	local severityDefaults = M.Defaults.cfg.colors.severity
+	if type(cfg.colors.severity.low) ~= "table" then
+		cfg.colors.severity.low = {
+			r = severityDefaults.low.r,
+			g = severityDefaults.low.g,
+			b = severityDefaults.low.b,
+			a = severityDefaults.low.a,
+		}
+	end
+	if type(cfg.colors.severity.medium) ~= "table" then
+		local legacyBarColor = cfg.bars and cfg.bars.color
+		if type(legacyBarColor) == "table" then
+			cfg.colors.severity.medium = {
+				r = legacyBarColor.r,
+				g = legacyBarColor.g,
+				b = legacyBarColor.b,
+				a = legacyBarColor.a,
+			}
+		else
+			cfg.colors.severity.medium = {
+				r = severityDefaults.medium.r,
+				g = severityDefaults.medium.g,
+				b = severityDefaults.medium.b,
+				a = severityDefaults.medium.a,
+			}
+		end
+	end
+	if type(cfg.colors.severity.high) ~= "table" then
+		cfg.colors.severity.high = {
+			r = severityDefaults.high.r,
+			g = severityDefaults.high.g,
+			b = severityDefaults.high.b,
+			a = severityDefaults.high.a,
+		}
+	end
+	repairColor(cfg.colors.severity.low, severityDefaults.low.r, severityDefaults.low.g, severityDefaults.low.b, severityDefaults.low.a)
+	repairColor(cfg.colors.severity.medium, severityDefaults.medium.r, severityDefaults.medium.g, severityDefaults.medium.b, severityDefaults.medium.a)
+	repairColor(cfg.colors.severity.high, severityDefaults.high.r, severityDefaults.high.g, severityDefaults.high.b, severityDefaults.high.a)
 	cfg.indicators = cfg.indicators or {
 		iconSize = M.Defaults.cfg.indicators.iconSize,
 		barSize = M.Defaults.cfg.indicators.barSize,
@@ -348,7 +462,6 @@ function M:EnsureDefaults()
 		anchorTo = M.Defaults.cfg.privateAuras.anchorTo,
 		anchorParent = M.Defaults.cfg.privateAuras.anchorParent,
 		customParent = M.Defaults.cfg.privateAuras.customParent,
-		sound = M.Defaults.cfg.privateAuras.sound,
 	}
 	if cfg.privateAuras.size == nil then
 		cfg.privateAuras.size = M.Defaults.cfg.privateAuras.size
@@ -377,24 +490,9 @@ function M:EnsureDefaults()
 	if cfg.privateAuras.customParent == nil then
 		cfg.privateAuras.customParent = M.Defaults.cfg.privateAuras.customParent
 	end
-	if cfg.privateAuras.sound == nil then
-		if type(cfg.privateAuras.soundKitID) == "number" then
-			local legacyKey = "SBM: Legacy " .. tostring(cfg.privateAuras.soundKitID)
-			if LSM and LSM.IsValid and not LSM:IsValid("sound", legacyKey) then
-				LSM:Register("sound", legacyKey, cfg.privateAuras.soundKitID)
-			end
-			cfg.privateAuras.sound = legacyKey
-		else
-			cfg.privateAuras.sound = M.Defaults.cfg.privateAuras.sound
-		end
-	end
-	if cfg.privateAuras.soundChannel == nil then
-		cfg.privateAuras.soundChannel = M.Defaults.cfg.privateAuras.soundChannel
-	end
-	do
-		local channel = M.NormalizeSoundChannel(cfg.privateAuras.soundChannel) or M.Defaults.cfg.privateAuras.soundChannel
-		cfg.privateAuras.soundChannel = channel
-	end
+	cfg.privateAuras.sound = nil
+	cfg.privateAuras.soundKitID = nil
+	cfg.privateAuras.soundChannel = nil
 	do
 		local dir = cfg.privateAuras.growDirection
 		if type(dir) ~= "string" then
@@ -482,6 +580,32 @@ M.Util = M.Util or {}
 local U = M.Util
 
 function U.clamp(v, lo, hi)
+	if type(issecretvalue) == "function" then
+		local vSecret = issecretvalue(v)
+		local loSecret = issecretvalue(lo)
+		local hiSecret = issecretvalue(hi)
+		if vSecret or loSecret or hiSecret then
+			if type(lo) == "number" and not loSecret then
+				return lo
+			end
+			if type(hi) == "number" and not hiSecret then
+				return hi
+			end
+			if type(v) == "number" and not vSecret then
+				return v
+			end
+			return 0
+		end
+	end
+	if type(v) ~= "number" then
+		v = tonumber(v) or 0
+	end
+	if type(lo) ~= "number" then
+		lo = tonumber(lo) or v
+	end
+	if type(hi) ~= "number" then
+		hi = tonumber(hi) or v
+	end
 	if v < lo then return lo end
 	if v > hi then return hi end
 	return v
@@ -508,10 +632,19 @@ function M.SyncLiveConfig()
 	local gc = SimpleBossModsDB.cfg.general
 	local ic = SimpleBossModsDB.cfg.icons
 	local bc = SimpleBossModsDB.cfg.bars
+	local cc = SimpleBossModsDB.cfg.colors or M.Defaults.cfg.colors
 	local inc = SimpleBossModsDB.cfg.indicators
 	local pc = SimpleBossModsDB.cfg.privateAuras or M.Defaults.cfg.privateAuras
 	local ct = SimpleBossModsDB.cfg.combatTimer or M.Defaults.cfg.combatTimer
+	local cnc = SimpleBossModsDB.cfg.connectors or M.Defaults.cfg.connectors
 	L.PRIVATE_AURA_ENABLED = pc.enabled ~= false
+	L.CONNECTOR_PROVIDER = normalizeConnectorID(cnc.provider) or M.Defaults.cfg.connectors.provider
+	L.CONNECTOR_USE_RECOMMENDED_SETTINGS = cnc.useRecommendedSettings ~= false
+	L.CONNECTOR_DISABLE_BLIZZARD_TIMELINE = cnc.disableBlizzardTimeline == true
+	L.CONNECTOR_USE_DBM_COLORS = cnc.useDBMColors ~= false
+	L.CONNECTOR_BIGWIGS_COLOR_MODE = normalizeBigWigsColorMode(cnc.bigWigsColorMode)
+	L.CONNECTOR_HIDE_BIGWIGS_BARS = cnc.hideBigWigsBars ~= false
+	L.CONNECTOR_HIDE_DBM_BARS = cnc.hideDBMBars ~= false
 
 	L.GAP = tonumber(gc.gap) or 6
 	L.AUTO_INSERT_KEYSTONE = gc.autoInsertKeystone and true or false
@@ -650,6 +783,26 @@ function M.SyncLiveConfig()
 	L.BAR_BG_B = U.clamp(tonumber(barBg.b) or C.BAR_BG_B, 0, 1)
 	L.BAR_BG_A = U.clamp(tonumber(barBg.a) or C.BAR_BG_A, 0, 1)
 
+	local severityColors = cc.severity or M.Defaults.cfg.colors.severity
+	local lowSeverity = severityColors.low or M.Defaults.cfg.colors.severity.low
+	local mediumSeverity = severityColors.medium or M.Defaults.cfg.colors.severity.medium
+	local highSeverity = severityColors.high or M.Defaults.cfg.colors.severity.high
+
+	L.SEVERITY_LOW_R = U.clamp(tonumber(lowSeverity.r) or M.Defaults.cfg.colors.severity.low.r, 0, 1)
+	L.SEVERITY_LOW_G = U.clamp(tonumber(lowSeverity.g) or M.Defaults.cfg.colors.severity.low.g, 0, 1)
+	L.SEVERITY_LOW_B = U.clamp(tonumber(lowSeverity.b) or M.Defaults.cfg.colors.severity.low.b, 0, 1)
+	L.SEVERITY_LOW_A = U.clamp(tonumber(lowSeverity.a) or M.Defaults.cfg.colors.severity.low.a, 0, 1)
+
+	L.SEVERITY_MEDIUM_R = U.clamp(tonumber(mediumSeverity.r) or M.Defaults.cfg.colors.severity.medium.r, 0, 1)
+	L.SEVERITY_MEDIUM_G = U.clamp(tonumber(mediumSeverity.g) or M.Defaults.cfg.colors.severity.medium.g, 0, 1)
+	L.SEVERITY_MEDIUM_B = U.clamp(tonumber(mediumSeverity.b) or M.Defaults.cfg.colors.severity.medium.b, 0, 1)
+	L.SEVERITY_MEDIUM_A = U.clamp(tonumber(mediumSeverity.a) or M.Defaults.cfg.colors.severity.medium.a, 0, 1)
+
+	L.SEVERITY_HIGH_R = U.clamp(tonumber(highSeverity.r) or M.Defaults.cfg.colors.severity.high.r, 0, 1)
+	L.SEVERITY_HIGH_G = U.clamp(tonumber(highSeverity.g) or M.Defaults.cfg.colors.severity.high.g, 0, 1)
+	L.SEVERITY_HIGH_B = U.clamp(tonumber(highSeverity.b) or M.Defaults.cfg.colors.severity.high.b, 0, 1)
+	L.SEVERITY_HIGH_A = U.clamp(tonumber(highSeverity.a) or M.Defaults.cfg.colors.severity.high.a, 0, 1)
+
 	L.ICON_INDICATOR_SIZE = tonumber(inc.iconSize) or 0
 	L.BAR_INDICATOR_SIZE = tonumber(inc.barSize) or 0
 
@@ -688,27 +841,6 @@ function M.SyncLiveConfig()
 	end
 	L.PRIVATE_AURA_X = tonumber(pc.x) or 0
 	L.PRIVATE_AURA_Y = tonumber(pc.y) or 0
-	local soundKey = pc.sound or M.Defaults.cfg.privateAuras.sound
-	L.PRIVATE_AURA_SOUND_KEY = soundKey
-	local soundValue = nil
-	if type(soundKey) == "number" then
-		soundValue = soundKey
-	elseif type(soundKey) == "string" then
-		if LSM then
-			soundValue = LSM:Fetch("sound", soundKey)
-		end
-		if not soundValue then
-			local numeric = tonumber(soundKey)
-			if numeric then
-				soundValue = numeric
-			end
-		end
-	end
-	if soundValue == nil and type(pc.soundKitID) == "number" then
-		soundValue = pc.soundKitID
-	end
-	L.PRIVATE_AURA_SOUND = soundValue
-	L.PRIVATE_AURA_SOUND_CHANNEL = M.NormalizeSoundChannel(pc.soundChannel) or M.Defaults.cfg.privateAuras.soundChannel
 
 	L.COMBAT_TIMER_ENABLED = ct.enabled and true or false
 	L.COMBAT_TIMER_X = tonumber(ct.x) or 0
@@ -873,6 +1005,25 @@ function U.safeGetLabel(eventInfo)
 	return label
 end
 
+function U.safeGetSeverity(eventInfo)
+	if type(eventInfo) ~= "table" then return nil end
+	local severity = eventInfo.severity
+	if isSecretValue(severity) then return nil end
+
+	if type(severity) == "number" then
+		return U.clamp(U.round(severity), 0, 2)
+	end
+
+	if type(severity) == "string" then
+		local key = severity:upper()
+		if key == "LOW" then return 0 end
+		if key == "MEDIUM" then return 1 end
+		if key == "HIGH" then return 2 end
+	end
+
+	return nil
+end
+
 function M:CanUseTimelineScriptEvents()
 	return C_EncounterTimeline and type(C_EncounterTimeline.AddScriptEvent) == "function"
 end
@@ -914,6 +1065,7 @@ M.events = M.events or {}
 M._settingsCategoryName = "SimpleBossMods"
 M._settingsCategoryID = nil
 M._testTicker = nil
+M._testSourceConnectorID = nil
 M._testTimelineEventIDs = nil
 M._testTimelineEventIDSet = nil
 M._testEditModeEventTimer = nil

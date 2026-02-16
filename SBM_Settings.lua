@@ -159,6 +159,80 @@ function M:ApplyGeneralConfig(gap, autoInsertKeystone)
 	M:LayoutAll()
 end
 
+function M:ApplyConnectorHideDBMBars(enabled)
+	SimpleBossModsDB.cfg.connectors = SimpleBossModsDB.cfg.connectors or {}
+	SimpleBossModsDB.cfg.connectors.hideDBMBars = enabled and true or false
+	M.SyncLiveConfig()
+	if self.ApplyDBMConnectorBarVisibility then
+		self:ApplyDBMConnectorBarVisibility(self.GetActiveConnectorID and self:GetActiveConnectorID() or nil)
+	end
+end
+
+function M:ApplyConnectorHideBigWigsBars(enabled)
+	SimpleBossModsDB.cfg.connectors = SimpleBossModsDB.cfg.connectors or {}
+	SimpleBossModsDB.cfg.connectors.hideBigWigsBars = enabled and true or false
+	M.SyncLiveConfig()
+	if self.ApplyBigWigsConnectorBarVisibility then
+		self:ApplyBigWigsConnectorBarVisibility(self.GetActiveConnectorID and self:GetActiveConnectorID() or nil)
+	end
+end
+
+function M:ApplyConnectorUseRecommendedSettings(enabled)
+	SimpleBossModsDB.cfg.connectors = SimpleBossModsDB.cfg.connectors or {}
+	SimpleBossModsDB.cfg.connectors.useRecommendedSettings = enabled and true or false
+	M.SyncLiveConfig()
+	if self.ApplyTimelineConnectorMode then
+		self:ApplyTimelineConnectorMode()
+	end
+	if not enabled and self.GetActiveConnectorID and self:GetActiveConnectorID() == "timeline" then
+		local timelineFrame = _G.EncounterTimeline
+		if timelineFrame and type(timelineFrame.Show) == "function" then
+			pcall(timelineFrame.Show, timelineFrame)
+		end
+	end
+end
+
+function M:ApplyConnectorDisableBlizzardTimeline(enabled)
+	SimpleBossModsDB.cfg.connectors = SimpleBossModsDB.cfg.connectors or {}
+	SimpleBossModsDB.cfg.connectors.disableBlizzardTimeline = enabled and true or false
+	M.SyncLiveConfig()
+	if self.ApplyConnectorTimelineState then
+		self:ApplyConnectorTimelineState(self.GetActiveConnectorID and self:GetActiveConnectorID() or nil)
+	end
+end
+
+function M:ApplyConnectorUseDBMColors(enabled)
+	SimpleBossModsDB.cfg.connectors = SimpleBossModsDB.cfg.connectors or {}
+	SimpleBossModsDB.cfg.connectors.useDBMColors = enabled and true or false
+	M.SyncLiveConfig()
+	if self.GetActiveConnectorID and self:GetActiveConnectorID() == "dbm" then
+		if self.Tick then
+			self:Tick()
+		end
+		if self.LayoutAll then
+			self:LayoutAll()
+		end
+	end
+end
+
+function M:ApplyConnectorBigWigsColorMode(mode)
+	SimpleBossModsDB.cfg.connectors = SimpleBossModsDB.cfg.connectors or {}
+	mode = (type(mode) == "string") and mode:lower() or "normal"
+	if mode ~= "emphasized" then
+		mode = "normal"
+	end
+	SimpleBossModsDB.cfg.connectors.bigWigsColorMode = mode
+	M.SyncLiveConfig()
+	if self.GetActiveConnectorID and self:GetActiveConnectorID() == "bigwigs" then
+		if self.Tick then
+			self:Tick()
+		end
+		if self.LayoutAll then
+			self:LayoutAll()
+		end
+	end
+end
+
 function M:ApplyIconConfig(size, fontSize, borderThickness)
 	local ic = SimpleBossModsDB.cfg.icons
 	ic.size = U.clamp(U.round(size), 16, 128)
@@ -461,14 +535,53 @@ function M:ApplyBarColor(r, g, b, a)
 
 	M.SyncLiveConfig()
 
-	for _, rec in pairs(self.events) do
-		if rec.barFrame then
-			M.setBarFillFlat(rec.barFrame, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
-		end
+	for id, rec in pairs(self.events) do
+		self:updateRecord(id, rec.eventInfo, rec.remaining)
 	end
 	for _, f in ipairs(M.pools.bar) do
 		M.setBarFillFlat(f, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
 	end
+	self:LayoutAll()
+end
+
+function M:ApplySeverityColor(level, r, g, b, a)
+	local key = tostring(level or ""):lower()
+	if key ~= "low" and key ~= "medium" and key ~= "high" then
+		return
+	end
+
+	local cfg = SimpleBossModsDB.cfg
+	cfg.colors = cfg.colors or {}
+	cfg.colors.severity = cfg.colors.severity or {}
+	cfg.colors.severity[key] = cfg.colors.severity[key] or {}
+
+	local target = cfg.colors.severity[key]
+	if key == "low" then
+		target.r = U.clamp(tonumber(r) or L.SEVERITY_LOW_R, 0, 1)
+		target.g = U.clamp(tonumber(g) or L.SEVERITY_LOW_G, 0, 1)
+		target.b = U.clamp(tonumber(b) or L.SEVERITY_LOW_B, 0, 1)
+		target.a = U.clamp(tonumber(a) or L.SEVERITY_LOW_A, 0, 1)
+	elseif key == "high" then
+		target.r = U.clamp(tonumber(r) or L.SEVERITY_HIGH_R, 0, 1)
+		target.g = U.clamp(tonumber(g) or L.SEVERITY_HIGH_G, 0, 1)
+		target.b = U.clamp(tonumber(b) or L.SEVERITY_HIGH_B, 0, 1)
+		target.a = U.clamp(tonumber(a) or L.SEVERITY_HIGH_A, 0, 1)
+	else
+		target.r = U.clamp(tonumber(r) or L.SEVERITY_MEDIUM_R, 0, 1)
+		target.g = U.clamp(tonumber(g) or L.SEVERITY_MEDIUM_G, 0, 1)
+		target.b = U.clamp(tonumber(b) or L.SEVERITY_MEDIUM_B, 0, 1)
+		target.a = U.clamp(tonumber(a) or L.SEVERITY_MEDIUM_A, 0, 1)
+	end
+
+	M.SyncLiveConfig()
+
+	for id, rec in pairs(self.events) do
+		self:updateRecord(id, rec.eventInfo, rec.remaining)
+	end
+	for _, f in ipairs(M.pools.bar) do
+		M.setBarFillFlat(f, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
+	end
+	self:LayoutAll()
 end
 
 function M:ApplyBarBgColor(r, g, b, a)
@@ -522,14 +635,13 @@ function M:ApplyBarTextureConfig(textureKey)
 
 	M.SyncLiveConfig()
 
-	for _, rec in pairs(self.events) do
-		if rec.barFrame then
-			M.setBarFillFlat(rec.barFrame, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
-		end
+	for id, rec in pairs(self.events) do
+		self:updateRecord(id, rec.eventInfo, rec.remaining)
 	end
 	for _, f in ipairs(M.pools.bar) do
 		M.setBarFillFlat(f, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
 	end
+	self:LayoutAll()
 end
 
 function M:ApplyIconFontConfig(fontKey)
@@ -567,7 +679,7 @@ function M:ApplyIndicatorConfig(iconSize, barSize)
 	self:LayoutAll()
 end
 
-function M:ApplyPrivateAuraConfig(size, gap, growDirection, x, y, soundKey)
+function M:ApplyPrivateAuraConfig(size, gap, growDirection, x, y)
 	local pc = SimpleBossModsDB.cfg.privateAuras
 	pc.size = U.clamp(U.round(size), 16, 128)
 	pc.gap = U.clamp(U.round(gap), 0, 50)
@@ -579,16 +691,8 @@ function M:ApplyPrivateAuraConfig(size, gap, growDirection, x, y, soundKey)
 	end
 	pc.x = tonumber(x) or pc.x or 0
 	pc.y = tonumber(y) or pc.y or 0
-	local soundChanged = false
-	if soundKey ~= nil and soundKey ~= pc.sound then
-		pc.sound = soundKey
-		soundChanged = true
-	end
 
 	M.SyncLiveConfig()
-	if soundChanged and M.ResetPrivateAuraSoundRegistrations then
-		M:ResetPrivateAuraSoundRegistrations()
-	end
 	if M.UpdatePrivateAuraAnchorPosition then
 		M:UpdatePrivateAuraAnchorPosition()
 	end
@@ -602,9 +706,6 @@ function M:ApplyPrivateAuraEnabled(enabled)
 	pc.enabled = enabled and true or false
 	M.SyncLiveConfig()
 	if not pc.enabled then
-		if M.ResetPrivateAuraSoundRegistrations then
-			M:ResetPrivateAuraSoundRegistrations()
-		end
 		if M.ShowTestPrivateAura then
 			M:ShowTestPrivateAura(false)
 		end
@@ -612,26 +713,11 @@ function M:ApplyPrivateAuraEnabled(enabled)
 	if M.UpdatePrivateAuraAnchor then
 		M:UpdatePrivateAuraAnchor()
 	end
-	if pc.enabled and M.SetupPrivateAuraSoundWatcher then
-		M:SetupPrivateAuraSoundWatcher()
-	end
 	if M.UpdatePrivateAuraFrames then
-		M:UpdatePrivateAuraFrames(false)
+		M:UpdatePrivateAuraFrames()
 	end
 	if pc.enabled and M._testActive and M.ShowTestPrivateAura then
 		M:ShowTestPrivateAura(true)
-	end
-end
-
-function M:ApplyPrivateAuraSoundChannel(channel)
-	local pc = SimpleBossModsDB.cfg.privateAuras
-	local normalized = M.NormalizeSoundChannel and M.NormalizeSoundChannel(channel)
-	if normalized then
-		pc.soundChannel = normalized
-	end
-	M.SyncLiveConfig()
-	if M.ResetPrivateAuraSoundRegistrations then
-		M:ResetPrivateAuraSoundRegistrations()
 	end
 end
 
@@ -843,7 +929,7 @@ function M:OpenSettings()
 			frame:Raise()
 		end
 		if self._settingsTabGroup and self._settingsTabStatus then
-			self._settingsTabGroup:SelectTab(self._settingsTabStatus.selected or "Icons")
+			self._settingsTabGroup:SelectTab(self._settingsTabStatus.selected or "Connectors")
 		elseif frame._refreshAll then
 			frame._refreshAll()
 		end
@@ -1049,16 +1135,6 @@ function M:CreateLegacySettingsWindow()
 		ColorPickerFrame:Show()
 	end
 
-	local function buildPrivateAuraSoundOptions()
-		if not LSM then return nil end
-		local list = {}
-		for key in pairs(LSM:HashTable("sound")) do
-			list[#list + 1] = { label = key, value = key }
-		end
-		table.sort(list, function(a, b) return a.label < b.label end)
-		return list
-	end
-
 	local function buildFontOptions()
 		if not LSM then return nil end
 		local list = {}
@@ -1259,84 +1335,6 @@ function M:CreateLegacySettingsWindow()
 				end
 				info.checked = (get() == opt.value)
 				UIDropDownMenu_AddButton(info)
-			end
-		end)
-
-		if tooltip then
-			fs:SetScript("OnEnter", function()
-				GameTooltip:SetOwner(fs, "ANCHOR_RIGHT")
-				GameTooltip:SetText(tooltip, 1, 1, 1, 1, true)
-				GameTooltip:Show()
-			end)
-			fs:SetScript("OnLeave", function() GameTooltip:Hide() end)
-		end
-
-		table.insert(inputs, refresh)
-		return dd
-	end
-
-	local function AddSoundDropdownRow(section, label, groups, get, set, tooltip)
-		local row = CreateRow(section, ROW_H * 2 + 8)
-		local fs = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-		fs:SetPoint("TOPLEFT", row, "TOPLEFT", LABEL_X, -2)
-		fs:SetText(label)
-
-		local dd = CreateFrame("Frame", nil, row, "UIDropDownMenuTemplate")
-		dd:SetPoint("TOPLEFT", row, "TOPLEFT", LABEL_X - 16, -ROW_H - 2)
-		UIDropDownMenu_SetWidth(dd, 220)
-		dd.listFrameStrata = "FULLSCREEN_DIALOG"
-
-		local function labelFor(id)
-			if not id or id == 0 then return "None" end
-			return privateAuraSoundIndex[id] or ("Custom (" .. tostring(id) .. ")")
-		end
-
-		local function refresh()
-			local val = get()
-			UIDropDownMenu_SetSelectedValue(dd, val)
-			UIDropDownMenu_SetText(dd, labelFor(val))
-		end
-
-		local function setSoundValue(value)
-			set(value)
-			UIDropDownMenu_SetSelectedValue(dd, value)
-			UIDropDownMenu_SetText(dd, labelFor(value))
-			if CloseDropDownMenus then
-				CloseDropDownMenus()
-			end
-		end
-
-		UIDropDownMenu_Initialize(dd, function(_, level, menuList)
-			if not level or level == 1 then
-				local noneInfo = UIDropDownMenu_CreateInfo()
-				noneInfo.text = "None"
-				noneInfo.arg1 = 0
-				noneInfo.func = function(_, arg1) setSoundValue(arg1) end
-				noneInfo.checked = (get() == 0)
-				UIDropDownMenu_AddButton(noneInfo, level)
-
-				for _, group in ipairs(groups) do
-					if group.items and #group.items > 0 and group.label ~= "None" then
-						local cat = UIDropDownMenu_CreateInfo()
-						cat.text = group.label
-						cat.hasArrow = true
-						cat.notCheckable = true
-						cat.menuList = group
-						UIDropDownMenu_AddButton(cat, level)
-					end
-				end
-				return
-			end
-
-			if level == 2 and menuList and menuList.items then
-				for _, opt in ipairs(menuList.items) do
-					local info = UIDropDownMenu_CreateInfo()
-					info.text = opt.label
-					info.arg1 = opt.id
-					info.func = function(_, arg1) setSoundValue(arg1) end
-					info.checked = (get() == opt.id)
-					UIDropDownMenu_AddButton(info, level)
-				end
 			end
 		end)
 
@@ -1639,13 +1637,11 @@ function M:CreateLegacySettingsWindow()
 		function(v) M:ApplyBarIconVisibilityConfig(v) end,
 		"Hide the icon without changing text alignment or fill direction."
 	)
-
-	local colorsSection = CreateSection(displayTab, "Colors")
-	AddColorRow(colorsSection, "Foreground Color",
+	AddColorRow(barsSection, "Default Bar Color (Timeline)",
 		function() return L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A end,
 		function(r, g, b, a) M:ApplyBarColor(r, g, b, a) end
 	)
-	AddColorRow(colorsSection, "Background Color",
+	AddColorRow(barsSection, "Default Background Color",
 		function() return L.BAR_BG_R, L.BAR_BG_G, L.BAR_BG_B, L.BAR_BG_A end,
 		function(r, g, b, a) M:ApplyBarBgColor(r, g, b, a) end
 	)
@@ -1747,7 +1743,7 @@ function M:CreateLegacySettingsWindow()
 	AddCheckRow(privateEnable, "Enable Tracking",
 		function() return SimpleBossModsDB.cfg.privateAuras.enabled ~= false end,
 		function(v) M:ApplyPrivateAuraEnabled(v) end,
-		"Toggle private aura icons and sound tracking."
+		"Toggle private aura icon tracking."
 	)
 
 	local privateAnchor = CreateSection(privateTab, "Anchor")
@@ -1795,8 +1791,7 @@ function M:CreateLegacySettingsWindow()
 				SimpleBossModsDB.cfg.privateAuras.gap,
 				SimpleBossModsDB.cfg.privateAuras.growDirection,
 				SimpleBossModsDB.cfg.privateAuras.x,
-				SimpleBossModsDB.cfg.privateAuras.y,
-				SimpleBossModsDB.cfg.privateAuras.sound
+				SimpleBossModsDB.cfg.privateAuras.y
 			)
 		end
 	)
@@ -1809,8 +1804,7 @@ function M:CreateLegacySettingsWindow()
 				v,
 				SimpleBossModsDB.cfg.privateAuras.growDirection,
 				SimpleBossModsDB.cfg.privateAuras.x,
-				SimpleBossModsDB.cfg.privateAuras.y,
-				SimpleBossModsDB.cfg.privateAuras.sound
+				SimpleBossModsDB.cfg.privateAuras.y
 			)
 		end
 	)
@@ -1824,43 +1818,11 @@ function M:CreateLegacySettingsWindow()
 				SimpleBossModsDB.cfg.privateAuras.gap,
 				v,
 				SimpleBossModsDB.cfg.privateAuras.x,
-				SimpleBossModsDB.cfg.privateAuras.y,
-				SimpleBossModsDB.cfg.privateAuras.sound
+				SimpleBossModsDB.cfg.privateAuras.y
 			)
 		end,
 		"Icon growth direction from the private aura anchor."
 	)
-
-	local privateSound = CreateSection(privateTab, "Sound")
-	local legacySoundOptions = buildPrivateAuraSoundOptions()
-	if legacySoundOptions then
-		AddDropdownRow(privateSound, "Sound (currently not working due to API bugs)",
-			legacySoundOptions,
-			function() return SimpleBossModsDB.cfg.privateAuras.sound end,
-			function(v)
-				M:ApplyPrivateAuraConfig(
-					SimpleBossModsDB.cfg.privateAuras.size,
-					SimpleBossModsDB.cfg.privateAuras.gap,
-					SimpleBossModsDB.cfg.privateAuras.growDirection,
-					SimpleBossModsDB.cfg.privateAuras.x,
-					SimpleBossModsDB.cfg.privateAuras.y,
-					v
-				)
-			end,
-			"Plays when a new private aura appears."
-		)
-	else
-		local row = CreateRow(privateSound, ROW_H)
-		local fs = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-		fs:SetPoint("LEFT", row, "LEFT", LABEL_X, 0)
-		fs:SetText("LibSharedMedia is not available.")
-	end
-
-	AddButton(privateSound, "Test Sound", function()
-		if M.PlayPrivateAuraSound then
-			M:PlayPrivateAuraSound()
-		end
-	end)
 
 	for _, tab in ipairs(tabs) do
 		LayoutTab(tab)
@@ -1992,10 +1954,14 @@ function M:CreateSettingsWindow()
 		return cb
 	end
 
-	local function addDropdown(container, label, list, getValue, setValue, width)
+	local function addDropdown(container, label, list, getValue, setValue, width, order)
 		local dd = AG:Create("Dropdown")
 		dd:SetLabel(label)
-		dd:SetList(list)
+		if type(order) == "table" and #order > 0 then
+			dd:SetList(list, order)
+		else
+			dd:SetList(list)
+		end
 		dd:SetValue(getValue())
 		if width then
 			dd:SetRelativeWidth(width)
@@ -2028,9 +1994,279 @@ function M:CreateSettingsWindow()
 		return cp
 	end
 
-	local function getPrivateAuraSoundList()
-		if not LSM then return nil end
-		return LSM:HashTable("sound")
+	local function buildConnectorsTab(container)
+		if addon.RefreshConnectorState then
+			addon:RefreshConnectorState()
+		end
+
+		local controls = AG:Create("InlineGroup")
+		controls:SetTitle("Connector Source")
+		controls:SetLayout("Flow")
+		controls:SetFullWidth(true)
+		container:AddChild(controls)
+
+		local statuses = addon.GetConnectorStatuses and addon:GetConnectorStatuses() or {}
+		local list = {}
+		local byID = {}
+		local order = {}
+		local seen = {}
+		local preferredOrder = { "timeline", "bigwigs", "dbm" }
+		for _, info in ipairs(statuses) do
+			byID[info.id] = info
+		end
+		for _, id in ipairs(preferredOrder) do
+			local info = byID[id]
+			if info then
+				list[id] = info.label
+				order[#order + 1] = id
+				seen[id] = true
+			end
+		end
+		for _, info in ipairs(statuses) do
+			if not seen[info.id] then
+				list[info.id] = info.label
+				order[#order + 1] = info.id
+				seen[info.id] = true
+			end
+		end
+
+		local optionsGroup = AG:Create("InlineGroup")
+		optionsGroup:SetTitle("Connector Options")
+		optionsGroup:SetLayout("Flow")
+		optionsGroup:SetFullWidth(true)
+		container:AddChild(optionsGroup)
+
+		local infoGroup = AG:Create("InlineGroup")
+		infoGroup:SetTitle("Credits")
+		infoGroup:SetLayout("Flow")
+		infoGroup:SetFullWidth(true)
+		container:AddChild(infoGroup)
+
+		local function addInfoLine(text)
+			local line = AG:Create("Label")
+			line:SetText(text)
+			line:SetFullWidth(true)
+			infoGroup:AddChild(line)
+		end
+
+		local function setCreditsVisible(visible)
+			if infoGroup and infoGroup.frame then
+				infoGroup.frame:SetShown(visible and true or false)
+				if container and container.DoLayout then
+					container:DoLayout()
+				end
+			end
+		end
+
+		local function getSelectedConnectorID()
+			if addon.GetRequestedConnectorID then
+				return addon:GetRequestedConnectorID()
+			end
+			return (SimpleBossModsDB.cfg.connectors and SimpleBossModsDB.cfg.connectors.provider) or "timeline"
+		end
+
+		local function refreshCredits(selectedID)
+			infoGroup:ReleaseChildren()
+			selectedID = tostring(selectedID or "timeline"):lower()
+
+			if selectedID == "timeline" then
+				setCreditsVisible(false)
+				return
+			end
+
+			setCreditsVisible(true)
+			if selectedID == "bigwigs" then
+				addInfoLine("|cffffd200BigWigs Credits|r")
+				addInfoLine("Authors: The BigWigs Team and contributors.")
+				addInfoLine("GitHub: https://github.com/BigWigsMods/BigWigs")
+				addInfoLine("Requires BigWigs to be installed and loaded (and LittleWigs for dungeon coverage).")
+				addInfoLine("This connector depends on BigWigs data and would not work without their development work.")
+				addInfoLine("All rights belong to the BigWigs authors. Please support the official project.")
+			else
+				addInfoLine("|cffffd200DBM Credits|r")
+				addInfoLine("Authors: Deadly Boss Mods team, led by MysticalOS, and contributors.")
+				addInfoLine("GitHub: https://github.com/DeadlyBossMods/DeadlyBossMods")
+				addInfoLine("Requires Deadly Boss Mods (DBM) to be installed and loaded.")
+				addInfoLine("This connector depends on DBM data and would not work without their development work.")
+				addInfoLine("All rights belong to the DBM authors. Please support the official project.")
+			end
+		end
+
+		local function refreshConnectorOptions(selectedID)
+			optionsGroup:ReleaseChildren()
+			selectedID = tostring(selectedID or "timeline"):lower()
+
+			if selectedID == "timeline" then
+				addCheckBox(optionsGroup, "Use recommended settings",
+					function()
+						local connectors = SimpleBossModsDB.cfg.connectors
+						return not connectors or connectors.useRecommendedSettings ~= false
+					end,
+					function(value)
+						if addon.ApplyConnectorUseRecommendedSettings then
+							addon:ApplyConnectorUseRecommendedSettings(value)
+						end
+					end,
+					1
+				)
+
+				local note = AG:Create("Label")
+				note:SetText("Recommended: keeps the Blizzard timeline active, sets it to Bars, and hides the Blizzard frame so SBM gets better event data.")
+				note:SetFullWidth(true)
+				optionsGroup:AddChild(note)
+
+				local note2 = AG:Create("Label")
+				note2:SetText("Disable this if you prefer using your own timeline settings.")
+				note2:SetFullWidth(true)
+				optionsGroup:AddChild(note2)
+			elseif selectedID == "bigwigs" then
+				addCheckBox(optionsGroup, "Disable Blizzard timeline",
+					function()
+						local connectors = SimpleBossModsDB.cfg.connectors
+						return connectors and connectors.disableBlizzardTimeline == true
+					end,
+					function(value)
+						if addon.ApplyConnectorDisableBlizzardTimeline then
+							addon:ApplyConnectorDisableBlizzardTimeline(value)
+						end
+					end,
+					1
+				)
+
+				local timelineNote = AG:Create("Label")
+				timelineNote:SetText("Optional. Disables the Blizzard encounter timeline while using external connectors.")
+				timelineNote:SetFullWidth(true)
+				optionsGroup:AddChild(timelineNote)
+
+				addDropdown(optionsGroup, "BigWigs bar colors",
+					{
+						normal = "Normal",
+						emphasized = "Emphasized",
+					},
+					function()
+						local connectors = SimpleBossModsDB.cfg.connectors
+						local mode = connectors and connectors.bigWigsColorMode or "normal"
+						mode = (type(mode) == "string") and mode:lower() or "normal"
+						if mode ~= "emphasized" then
+							mode = "normal"
+						end
+						return mode
+					end,
+					function(value)
+						if addon.ApplyConnectorBigWigsColorMode then
+							addon:ApplyConnectorBigWigsColorMode(value)
+						end
+					end,
+					1
+				)
+
+				local colorsModeNote = AG:Create("Label")
+				colorsModeNote:SetText("Choose whether SBM uses BigWigs normal or emphasized bar colors (including per-ability overrides).")
+				colorsModeNote:SetFullWidth(true)
+				optionsGroup:AddChild(colorsModeNote)
+
+				addCheckBox(optionsGroup, "Hide BigWigs bars",
+					function()
+						local connectors = SimpleBossModsDB.cfg.connectors
+						return not connectors or connectors.hideBigWigsBars ~= false
+					end,
+					function(value)
+						if addon.ApplyConnectorHideBigWigsBars then
+							addon:ApplyConnectorHideBigWigsBars(value)
+						end
+					end,
+					1
+				)
+
+				local note = AG:Create("Label")
+				note:SetText("Enabled by default. Hides native BigWigs bars while SBM uses BigWigs as connector.")
+				note:SetFullWidth(true)
+				optionsGroup:AddChild(note)
+			elseif selectedID == "dbm" then
+				addCheckBox(optionsGroup, "Disable Blizzard timeline",
+					function()
+						local connectors = SimpleBossModsDB.cfg.connectors
+						return connectors and connectors.disableBlizzardTimeline == true
+					end,
+					function(value)
+						if addon.ApplyConnectorDisableBlizzardTimeline then
+							addon:ApplyConnectorDisableBlizzardTimeline(value)
+						end
+					end,
+					1
+				)
+
+				local timelineNote = AG:Create("Label")
+				timelineNote:SetText("Optional. Disables the Blizzard encounter timeline while using external connectors.")
+				timelineNote:SetFullWidth(true)
+				optionsGroup:AddChild(timelineNote)
+
+				addCheckBox(optionsGroup, "Use DBM colors",
+					function()
+						local connectors = SimpleBossModsDB.cfg.connectors
+						return not connectors or connectors.useDBMColors ~= false
+					end,
+					function(value)
+						if addon.ApplyConnectorUseDBMColors then
+							addon:ApplyConnectorUseDBMColors(value)
+						end
+					end,
+					1
+				)
+
+				local colorsNote = AG:Create("Label")
+				colorsNote:SetText("Enabled by default. Uses DBM default/type bar colors for all DBM abilities.")
+				colorsNote:SetFullWidth(true)
+				optionsGroup:AddChild(colorsNote)
+
+				addCheckBox(optionsGroup, "Hide DBM bars",
+					function()
+						local connectors = SimpleBossModsDB.cfg.connectors
+						return not connectors or connectors.hideDBMBars ~= false
+					end,
+					function(value)
+						if addon.ApplyConnectorHideDBMBars then
+							addon:ApplyConnectorHideDBMBars(value)
+						end
+					end,
+					1
+				)
+
+				local note = AG:Create("Label")
+				note:SetText("Enabled by default. Hides native DBM bars while SBM uses DBM as connector.")
+				note:SetFullWidth(true)
+				optionsGroup:AddChild(note)
+			end
+		end
+
+		local connectorDropdown = addDropdown(controls, "Active Connector",
+			list,
+			function()
+				return getSelectedConnectorID()
+			end,
+			function(value)
+				if addon.SetConnector then
+					local ok, reason = addon:SetConnector(value)
+					if not ok and type(reason) == "string" and reason ~= "" then
+						print("SimpleBossMods:", reason)
+					end
+				end
+				local selectedID = getSelectedConnectorID()
+				refreshCredits(selectedID)
+				refreshConnectorOptions(selectedID)
+			end,
+			1,
+			order
+		)
+		if connectorDropdown and connectorDropdown.SetItemDisabled then
+			for id, info in pairs(byID) do
+				connectorDropdown:SetItemDisabled(id, not info.available)
+			end
+		end
+
+		local selectedID = getSelectedConnectorID()
+		refreshCredits(selectedID)
+		refreshConnectorOptions(selectedID)
 	end
 
 	local function buildDungeonTab(container)
@@ -2367,6 +2603,29 @@ function M:CreateSettingsWindow()
 			0.5
 		)
 
+		local defaults = AG:Create("InlineGroup")
+		defaults:SetTitle("Default Colors (Timeline)")
+		defaults:SetLayout("Flow")
+		defaults:SetFullWidth(true)
+		container:AddChild(defaults)
+
+		addColorPicker(defaults, "Default Bar Color",
+			function() return L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A end,
+			function(r, g, b, a) addon:ApplyBarColor(r, g, b, a) end,
+			0.5
+		)
+
+		addColorPicker(defaults, "Default Background Color",
+			function() return L.BAR_BG_R, L.BAR_BG_G, L.BAR_BG_B, L.BAR_BG_A end,
+			function(r, g, b, a) addon:ApplyBarBgColor(r, g, b, a) end,
+			0.5
+		)
+
+		local defaultsNote = AG:Create("Label")
+		defaultsNote:SetText("Timeline uses these defaults. BigWigs/DBM colors are sourced from their connectors.")
+		defaultsNote:SetFullWidth(true)
+		defaults:AddChild(defaultsNote)
+
 		local media = AG:Create("InlineGroup")
 		media:SetTitle("Fonts & Textures")
 		media:SetLayout("Flow")
@@ -2402,25 +2661,7 @@ function M:CreateSettingsWindow()
 			media:AddChild(label)
 		end
 
-		local colors = AG:Create("InlineGroup")
-		colors:SetTitle("Colors")
-		colors:SetLayout("Flow")
-		colors:SetFullWidth(true)
-		container:AddChild(colors)
-
-		addColorPicker(colors, "Foreground Color",
-			function() return L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A end,
-			function(r, g, b, a) addon:ApplyBarColor(r, g, b, a) end,
-			0.5
-		)
-
-		addColorPicker(colors, "Background Color",
-			function() return L.BAR_BG_R, L.BAR_BG_G, L.BAR_BG_B, L.BAR_BG_A end,
-			function(r, g, b, a) addon:ApplyBarBgColor(r, g, b, a) end,
-			0.5
-		)
 	end
-
 	local function buildCombatTimerTab(container)
 		local enabled = SimpleBossModsDB.cfg.combatTimer.enabled and true or false
 		local enable = AG:Create("InlineGroup")
@@ -2669,8 +2910,7 @@ function M:CreateSettingsWindow()
 					SimpleBossModsDB.cfg.privateAuras.gap,
 					SimpleBossModsDB.cfg.privateAuras.growDirection,
 					SimpleBossModsDB.cfg.privateAuras.x,
-					SimpleBossModsDB.cfg.privateAuras.y,
-					SimpleBossModsDB.cfg.privateAuras.sound
+					SimpleBossModsDB.cfg.privateAuras.y
 				)
 			end,
 			0.5
@@ -2684,8 +2924,7 @@ function M:CreateSettingsWindow()
 					v,
 					SimpleBossModsDB.cfg.privateAuras.growDirection,
 					SimpleBossModsDB.cfg.privateAuras.x,
-					SimpleBossModsDB.cfg.privateAuras.y,
-					SimpleBossModsDB.cfg.privateAuras.sound
+					SimpleBossModsDB.cfg.privateAuras.y
 				)
 			end,
 			0.5
@@ -2700,77 +2939,14 @@ function M:CreateSettingsWindow()
 					SimpleBossModsDB.cfg.privateAuras.gap,
 					v,
 					SimpleBossModsDB.cfg.privateAuras.x,
-					SimpleBossModsDB.cfg.privateAuras.y,
-					SimpleBossModsDB.cfg.privateAuras.sound
+					SimpleBossModsDB.cfg.privateAuras.y
 				)
 			end,
 			1
 		)
-
-		local sound = AG:Create("InlineGroup")
-		sound:SetTitle("Sound")
-		sound:SetLayout("Flow")
-		sound:SetFullWidth(true)
-		container:AddChild(sound)
-
-		local channelList = {
-			Master = "Master",
-			SFX = "SFX",
-			Music = "Music",
-			Ambience = "Ambience",
-			Dialog = "Dialog",
-		}
-
-		addDropdown(sound, "Sound Channel",
-			channelList,
-			function() return SimpleBossModsDB.cfg.privateAuras.soundChannel end,
-			function(v)
-				addon:ApplyPrivateAuraSoundChannel(v)
-			end,
-			1
-		)
-
-		if LSM then
-			local soundDropdown = AG:Create("LSM30_Sound")
-			soundDropdown:SetLabel("Sound (currently not working due to API bugs)")
-			soundDropdown:SetList(getPrivateAuraSoundList())
-			soundDropdown:SetValue(SimpleBossModsDB.cfg.privateAuras.sound)
-			soundDropdown:SetRelativeWidth(0.7)
-			soundDropdown:SetCallback("OnValueChanged", function(widget, _, value)
-				addon:ApplyPrivateAuraConfig(
-					SimpleBossModsDB.cfg.privateAuras.size,
-					SimpleBossModsDB.cfg.privateAuras.gap,
-					SimpleBossModsDB.cfg.privateAuras.growDirection,
-					SimpleBossModsDB.cfg.privateAuras.x,
-					SimpleBossModsDB.cfg.privateAuras.y,
-					value
-				)
-				widget:SetValue(SimpleBossModsDB.cfg.privateAuras.sound)
-			end)
-			sound:AddChild(soundDropdown)
-		else
-			local label = AG:Create("Label")
-			label:SetText("LibSharedMedia is not available.")
-			label:SetFullWidth(true)
-			sound:AddChild(label)
-		end
-
-		local testBtn = AG:Create("Button")
-		testBtn:SetText("Test Sound")
-		if LSM then
-			testBtn:SetRelativeWidth(0.3)
-		else
-			testBtn:SetFullWidth(true)
-		end
-		testBtn:SetCallback("OnClick", function()
-			if addon.PlayPrivateAuraSound then
-				addon:PlayPrivateAuraSound()
-			end
-		end)
-		sound:AddChild(testBtn)
 	end
 
-	local status = { selected = "Icons" }
+	local status = { selected = "Connectors" }
 	addon._settingsTabStatus = status
 
 	local tabs = AG:Create("TabGroup")
@@ -2778,6 +2954,7 @@ function M:CreateSettingsWindow()
 	tabs:SetFullWidth(true)
 	tabs:SetFullHeight(true)
 	tabs:SetTabs({
+		{ text = "Connectors", value = "Connectors" },
 		{ text = "Large Icons", value = "Icons" },
 		{ text = "Bars", value = "Bars" },
 		{ text = "Dungeon", value = "Dungeon" },
@@ -2786,6 +2963,7 @@ function M:CreateSettingsWindow()
 	})
 	tabs:SetStatusTable(status)
 	local validTabs = {
+		Connectors = true,
 		Icons = true,
 		Bars = true,
 		Dungeon = true,
@@ -2795,7 +2973,7 @@ function M:CreateSettingsWindow()
 	if status.selected == "Media" then
 		status.selected = "Bars"
 	elseif not validTabs[status.selected] then
-		status.selected = "Icons"
+		status.selected = "Connectors"
 	end
 	tabs:SetCallback("OnGroupSelected", function(container, _, group)
 		container:ReleaseChildren()
@@ -2805,7 +2983,9 @@ function M:CreateSettingsWindow()
 		scroll:SetFullHeight(true)
 		container:AddChild(scroll)
 
-		if group == "Icons" then
+		if group == "Connectors" then
+			buildConnectorsTab(scroll)
+		elseif group == "Icons" then
 			buildIconsTab(scroll)
 		elseif group == "Bars" then
 			buildBarsTab(scroll)

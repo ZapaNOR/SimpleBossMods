@@ -182,6 +182,292 @@ local function buildManualTimerEventInfo(kind)
 	}
 end
 
+local function setCVarBool(name, enabled)
+	if not name then return end
+	local value = enabled and "1" or "0"
+	if C_CVar and C_CVar.GetCVar and C_CVar.SetCVar then
+		local ok, current = pcall(C_CVar.GetCVar, name)
+		if ok and tostring(current) == value then return end
+		pcall(C_CVar.SetCVar, name, value)
+	elseif SetCVar then
+		pcall(SetCVar, name, value)
+	end
+end
+
+local function trySetEncounterTimelineViewBars()
+	if not (EditModeManagerFrame and EditModeManagerFrame.IsInitialized and EditModeManagerFrame:IsInitialized()) then
+		return false
+	end
+	if not (Enum and Enum.EditModeSystem and Enum.EditModeEncounterEventsSystemIndices and Enum.EditModeEncounterEventsSetting and Enum.EncounterEventsViewType) then
+		return false
+	end
+	local systemFrame = EditModeManagerFrame:GetRegisteredSystemFrame(
+		Enum.EditModeSystem.EncounterEvents,
+		Enum.EditModeEncounterEventsSystemIndices.Timeline
+	)
+	if not systemFrame then return false end
+	EditModeManagerFrame:OnSystemSettingChange(systemFrame, Enum.EditModeEncounterEventsSetting.ViewType, Enum.EncounterEventsViewType.Bars)
+	return true
+end
+
+local function ensureBlizzardTimelineSettings()
+	-- Ensure timeline feature is enabled via CVars.
+	setCVarBool("combatWarningsEnabled", true)
+	setCVarBool("encounterTimelineEnabled", true)
+
+	-- Ensure the Encounter Timeline view type is set to Bars in Edit Mode settings.
+	if trySetEncounterTimelineViewBars() then
+		M._timelineSettingsRetries = nil
+		return
+	end
+
+	M._timelineSettingsRetries = (M._timelineSettingsRetries or 0) + 1
+	if M._timelineSettingsRetries <= 10 and C_Timer and C_Timer.After then
+		C_Timer.After(0.5, ensureBlizzardTimelineSettings)
+	end
+end
+
+local function isTimelineConnectorActive()
+	return M.GetActiveConnectorID and M:GetActiveConnectorID() == "timeline"
+end
+
+local function getUseRecommendedTimelineSettings()
+	local cfg = SimpleBossModsDB and SimpleBossModsDB.cfg
+	local connectors = cfg and cfg.connectors
+	if type(connectors) ~= "table" then
+		return true
+	end
+	return connectors.useRecommendedSettings ~= false
+end
+
+local function getDisableBlizzardTimelineSetting()
+	local cfg = SimpleBossModsDB and SimpleBossModsDB.cfg
+	local connectors = cfg and cfg.connectors
+	if type(connectors) ~= "table" then
+		return false
+	end
+	return connectors.disableBlizzardTimeline == true
+end
+
+local function getCVarBool(name)
+	if not name then return nil end
+	if C_CVar and C_CVar.GetCVar then
+		local ok, value = pcall(C_CVar.GetCVar, name)
+		if ok and value ~= nil then
+			value = tostring(value)
+			return value == "1" or value == "true"
+		end
+	end
+	if GetCVar then
+		local ok, value = pcall(GetCVar, name)
+		if ok and value ~= nil then
+			value = tostring(value)
+			return value == "1" or value == "true"
+		end
+	end
+	return nil
+end
+
+local function hideBlizzardEncounterTimeline()
+	local frame = _G.EncounterTimeline
+	if not frame then return end
+	if not frame._sbmHideHooked then
+		frame._sbmHideHooked = true
+		frame:HookScript("OnShow", function(self)
+			if isTimelineConnectorActive() and getUseRecommendedTimelineSettings() then
+				self:Hide()
+			end
+		end)
+	end
+	if frame:IsShown() and isTimelineConnectorActive() and getUseRecommendedTimelineSettings() then
+		frame:Hide()
+	end
+end
+
+local function applyTimelineConnectorMode()
+	if not isTimelineConnectorActive() then
+		return
+	end
+	if not getUseRecommendedTimelineSettings() then
+		return
+	end
+	ensureBlizzardTimelineSettings()
+	hideBlizzardEncounterTimeline()
+end
+
+local function applyConnectorTimelineState(connectorID)
+	connectorID = connectorID or (M.GetActiveConnectorID and M:GetActiveConnectorID()) or "timeline"
+	local isExternalConnector = connectorID == "bigwigs" or connectorID == "dbm"
+	local shouldDisable = isExternalConnector and getDisableBlizzardTimelineSetting()
+
+	if shouldDisable then
+		if not M._sbmTimelineCVarControlled then
+			M._sbmTimelineCVarOriginal = {
+				encounterTimelineEnabled = getCVarBool("encounterTimelineEnabled"),
+			}
+		end
+		M._sbmTimelineCVarControlled = true
+		setCVarBool("encounterTimelineEnabled", false)
+	elseif M._sbmTimelineCVarControlled then
+		local original = M._sbmTimelineCVarOriginal
+		if type(original) == "table" then
+			if original.encounterTimelineEnabled ~= nil then
+				setCVarBool("encounterTimelineEnabled", original.encounterTimelineEnabled and true or false)
+			end
+		end
+		M._sbmTimelineCVarControlled = nil
+		M._sbmTimelineCVarOriginal = nil
+	end
+end
+
+local function getHideBigWigsBarsSetting()
+	local cfg = SimpleBossModsDB and SimpleBossModsDB.cfg
+	local connectors = cfg and cfg.connectors
+	if type(connectors) ~= "table" then
+		return true
+	end
+	return connectors.hideBigWigsBars ~= false
+end
+
+local function getHideDBMBarsSetting()
+	local cfg = SimpleBossModsDB and SimpleBossModsDB.cfg
+	local connectors = cfg and cfg.connectors
+	if type(connectors) ~= "table" then
+		return true
+	end
+	return connectors.hideDBMBars ~= false
+end
+
+local function applyBigWigsConnectorBarVisibility(connectorID)
+	connectorID = connectorID or (M.GetActiveConnectorID and M:GetActiveConnectorID()) or "timeline"
+	if type(M.SetBigWigsNativeBarsHidden) ~= "function" then
+		return
+	end
+
+	if connectorID == "bigwigs" then
+		M._sbmBigWigsBarsControlled = true
+		M:SetBigWigsNativeBarsHidden(getHideBigWigsBarsSetting())
+	elseif M._sbmBigWigsBarsControlled then
+		M:SetBigWigsNativeBarsHidden(false)
+		M._sbmBigWigsBarsControlled = nil
+	end
+end
+
+local function applyDBMConnectorBarVisibility(connectorID)
+	if type(DBM) ~= "table" or type(DBM.Options) ~= "table" then
+		return
+	end
+
+	local function pickVisibleAlpha(optionName, stored, hardDefault)
+		local n = tonumber(stored)
+		if n and n > 0 then
+			return n
+		end
+		if type(DBT) == "table" and type(DBT.DefaultOptions) == "table" then
+			n = tonumber(DBT.DefaultOptions[optionName])
+			if n and n > 0 then
+				return n
+			end
+		end
+		return hardDefault
+	end
+
+	connectorID = connectorID or (M.GetActiveConnectorID and M:GetActiveConnectorID()) or "timeline"
+	if connectorID == "dbm" then
+		if M._sbmDBMHideBarsOriginal == nil then
+			M._sbmDBMHideBarsOriginal = DBM.Options.HideDBMBars and true or false
+		end
+		M._sbmDBMHideBarsControlled = true
+		-- DBM stops creating timer bars/events when HideDBMBars is true, which breaks SBM ingestion.
+		-- Keep DBM timer creation enabled and hide DBM bars visually via DBT alpha instead.
+		if DBM.Options.HideDBMBars then
+			DBM.Options.HideDBMBars = false
+		end
+		if type(DBT) == "table" and type(DBT.Options) == "table" then
+			local opts = DBT.Options
+			if M._sbmDBTAlphaOriginal == nil then
+				local originalAlpha = tonumber(opts.Alpha)
+				if not originalAlpha or originalAlpha <= 0 then
+					originalAlpha = pickVisibleAlpha("Alpha", nil, 0.8)
+				end
+				M._sbmDBTAlphaOriginal = originalAlpha
+			end
+			if M._sbmDBTHugeAlphaOriginal == nil then
+				local originalHugeAlpha = tonumber(opts.HugeAlpha)
+				if not originalHugeAlpha or originalHugeAlpha <= 0 then
+					originalHugeAlpha = pickVisibleAlpha("HugeAlpha", nil, 1)
+				end
+				M._sbmDBTHugeAlphaOriginal = originalHugeAlpha
+			end
+
+			local shouldHide = getHideDBMBarsSetting() and true or false
+			if shouldHide then
+				opts.Alpha = 0
+				opts.HugeAlpha = 0
+			else
+				opts.Alpha = pickVisibleAlpha("Alpha", M._sbmDBTAlphaOriginal, 0.8)
+				opts.HugeAlpha = pickVisibleAlpha("HugeAlpha", M._sbmDBTHugeAlphaOriginal, 1)
+			end
+
+			if type(DBT.UpdateBars) == "function" then
+				pcall(DBT.UpdateBars, DBT, true)
+			end
+			if type(DBT.ApplyStyle) == "function" then
+				pcall(DBT.ApplyStyle, DBT)
+			end
+		end
+	elseif M._sbmDBMHideBarsControlled then
+		if M._sbmDBMHideBarsOriginal ~= nil then
+			DBM.Options.HideDBMBars = M._sbmDBMHideBarsOriginal and true or false
+		end
+		if type(DBT) == "table" and type(DBT.Options) == "table" then
+			DBT.Options.Alpha = pickVisibleAlpha("Alpha", M._sbmDBTAlphaOriginal, 0.8)
+			DBT.Options.HugeAlpha = pickVisibleAlpha("HugeAlpha", M._sbmDBTHugeAlphaOriginal, 1)
+			if type(DBT.UpdateBars) == "function" then
+				pcall(DBT.UpdateBars, DBT, true)
+			end
+			if type(DBT.ApplyStyle) == "function" then
+				pcall(DBT.ApplyStyle, DBT)
+			end
+		end
+		M._sbmDBMHideBarsControlled = nil
+		M._sbmDBMHideBarsOriginal = nil
+		M._sbmDBTAlphaOriginal = nil
+		M._sbmDBTHugeAlphaOriginal = nil
+	end
+end
+
+function M:ApplyBigWigsConnectorBarVisibility(connectorID)
+	applyBigWigsConnectorBarVisibility(connectorID)
+end
+
+function M:ApplyDBMConnectorBarVisibility(connectorID)
+	applyDBMConnectorBarVisibility(connectorID)
+end
+
+function M:ApplyTimelineConnectorMode()
+	applyTimelineConnectorMode()
+end
+
+function M:ApplyConnectorTimelineState(connectorID)
+	applyConnectorTimelineState(connectorID)
+end
+
+function M:OnActiveConnectorChanged(connectorID)
+	applyConnectorTimelineState(connectorID)
+	applyBigWigsConnectorBarVisibility(connectorID)
+	applyDBMConnectorBarVisibility(connectorID)
+	if connectorID == "timeline" then
+		applyTimelineConnectorMode()
+		if not (InCombatLockdown and InCombatLockdown()) then
+			local now = (GetTime and GetTime()) or 0
+			self._suppressTimelineUntil = now + 0.25
+		end
+	else
+		self._suppressTimelineUntil = nil
+	end
+end
+
 local function ensureManualTimerRecord(kind)
 	local id = MANUAL_TIMER_IDS[kind]
 	if not id then return nil end
@@ -440,9 +726,13 @@ ef:SetScript("OnEvent", function(_, event, ...)
 	if event == "PLAYER_LOGIN" then
 		M:EnsureDefaults()
 		M.SyncLiveConfig()
-		if M.SetupPrivateAuraSoundWatcher then
-			M:SetupPrivateAuraSoundWatcher()
+		if M.RefreshConnectorState then
+			M:RefreshConnectorState({ skipClear = true })
 		end
+		applyConnectorTimelineState()
+		applyTimelineConnectorMode()
+		applyBigWigsConnectorBarVisibility()
+		applyDBMConnectorBarVisibility()
 
 		M:ApplyGeneralConfig(
 			SimpleBossModsDB.cfg.general.gap or 6,
@@ -459,7 +749,7 @@ ef:SetScript("OnEvent", function(_, event, ...)
 		end
 		if M.ApplyPrivateAuraConfig then
 			local pc = SimpleBossModsDB.cfg.privateAuras
-			M:ApplyPrivateAuraConfig(pc.size, pc.gap, pc.growDirection, pc.x, pc.y, pc.sound)
+			M:ApplyPrivateAuraConfig(pc.size, pc.gap, pc.growDirection, pc.x, pc.y)
 		end
 		if M.UpdateCombatTimerAppearance then
 			M:UpdateCombatTimerAppearance()
@@ -469,7 +759,7 @@ ef:SetScript("OnEvent", function(_, event, ...)
 		end
 
 		M:CreateSettingsPanel()
-		if not (InCombatLockdown and InCombatLockdown()) then
+		if isTimelineConnectorActive() and not (InCombatLockdown and InCombatLockdown()) then
 			local now = (GetTime and GetTime()) or 0
 			M._suppressTimelineUntil = now + 0.5
 		end
@@ -498,19 +788,61 @@ ef:SetScript("OnEvent", function(_, event, ...)
 		end
 	elseif event == "ADDON_LOADED" then
 		local name = ...
+		if M.RefreshConnectorState then
+			M:RefreshConnectorState()
+		end
 		if name == "Blizzard_ChallengesUI" then
 			if M.SetupKeystoneAutoInsert then
 				M:SetupKeystoneAutoInsert()
 			end
-		elseif name == "Blizzard_PrivateAurasUI" then
-			if M.SetupPrivateAuraSoundWatcher then
-				M:SetupPrivateAuraSoundWatcher()
+		elseif name == "Blizzard_EditMode" then
+			applyTimelineConnectorMode()
+		elseif name == "Blizzard_EncounterTimeline" then
+			applyTimelineConnectorMode()
+		elseif name == "Blizzard_EncounterEvents" then
+			applyConnectorTimelineState()
+		elseif name == "BigWigs" or name == "BigWigs_Core" or name == "BigWigs_Plugins" then
+			applyConnectorTimelineState()
+			applyBigWigsConnectorBarVisibility()
+		elseif name == "DBM-Core" or name == "DBM-StatusBarTimers" then
+			applyConnectorTimelineState()
+			applyDBMConnectorBarVisibility()
+		end
+	elseif event == "ENCOUNTER_TIMELINE_EVENT_ADDED" then
+		if isTimelineConnectorActive() then
+			C_Timer.After(0, function() M:Tick() end)
+		end
+	elseif event == "ENCOUNTER_TIMELINE_EVENT_STATE_CHANGED"
+		or event == "ENCOUNTER_TIMELINE_EVENT_TRACK_CHANGED"
+		or event == "ENCOUNTER_TIMELINE_EVENT_BLOCK_STATE_CHANGED" then
+		if isTimelineConnectorActive() then
+			C_Timer.After(0, function() M:Tick() end)
+		end
+	elseif event == "ENCOUNTER_TIMELINE_EVENT_REMOVED" then
+		local eventID = ...
+		if isTimelineConnectorActive() and type(eventID) == "number" then
+			M:removeEvent(eventID)
+		end
+		if isTimelineConnectorActive() then
+			C_Timer.After(0, function() M:Tick() end)
+		end
+	elseif event == "ENCOUNTER_TIMELINE_LAYOUT_UPDATED"
+		or event == "ENCOUNTER_TIMELINE_STATE_UPDATED"
+		or event == "ENCOUNTER_TIMELINE_VIEW_ACTIVATED" then
+		if isTimelineConnectorActive() then
+			C_Timer.After(0, function() M:Tick() end)
+		end
+	elseif event == "ENCOUNTER_TIMELINE_VIEW_DEACTIVATED" then
+		if isTimelineConnectorActive() then
+			if M.clearAll then
+				M:clearAll()
+			end
+			if M.LayoutAll then
+				M:LayoutAll()
 			end
 		end
-	elseif event == "ENCOUNTER_TIMELINE_EVENT_ADDED"
-		or event == "ENCOUNTER_TIMELINE_EVENT_REMOVED"
-		or event == "ENCOUNTER_TIMELINE_EVENT_STATE_CHANGED" then
-		C_Timer.After(0, function() M:Tick() end)
+	elseif event == "EDIT_MODE_LAYOUTS_UPDATED" then
+		applyTimelineConnectorMode()
 	elseif event == "PLAYER_REGEN_DISABLED" then
 		if M.StartCombatTimer then
 			M:StartCombatTimer(true)
@@ -621,7 +953,7 @@ ef:SetScript("OnEvent", function(_, event, ...)
 	elseif event == "UNIT_AURA" then
 		local unit = ...
 		if unit == "player" and M.UpdatePrivateAuraFrames then
-			M:UpdatePrivateAuraFrames(true)
+			M:UpdatePrivateAuraFrames()
 		end
 	end
 end)
@@ -630,6 +962,13 @@ ef:RegisterEvent("ADDON_LOADED")
 ef:RegisterEvent("ENCOUNTER_TIMELINE_EVENT_ADDED")
 ef:RegisterEvent("ENCOUNTER_TIMELINE_EVENT_REMOVED")
 ef:RegisterEvent("ENCOUNTER_TIMELINE_EVENT_STATE_CHANGED")
+ef:RegisterEvent("ENCOUNTER_TIMELINE_EVENT_TRACK_CHANGED")
+ef:RegisterEvent("ENCOUNTER_TIMELINE_EVENT_BLOCK_STATE_CHANGED")
+ef:RegisterEvent("ENCOUNTER_TIMELINE_LAYOUT_UPDATED")
+ef:RegisterEvent("ENCOUNTER_TIMELINE_STATE_UPDATED")
+ef:RegisterEvent("ENCOUNTER_TIMELINE_VIEW_ACTIVATED")
+ef:RegisterEvent("ENCOUNTER_TIMELINE_VIEW_DEACTIVATED")
+ef:RegisterEvent("EDIT_MODE_LAYOUTS_UPDATED")
 ef:RegisterEvent("PLAYER_REGEN_DISABLED")
 ef:RegisterEvent("PLAYER_REGEN_ENABLED")
 ef:RegisterEvent("START_PLAYER_COUNTDOWN")
