@@ -46,6 +46,129 @@ local ANCHOR_POINT_MAP = {
 	BOTTOMRIGHT = "Bottom Right",
 }
 
+local bitBand = (bit and bit.band) or (bit32 and bit32.band)
+
+local function flushEncounterEventColorRefresh()
+	if type(M.BuildEncounterEventCache) ~= "function" then
+		return
+	end
+	M._cacheRebuildPending = true
+	if type(M.EnsureEncounterEventCache) == "function" then
+		M:EnsureEncounterEventCache()
+	else
+		M:BuildEncounterEventCache()
+	end
+end
+
+local function requestEncounterEventColorRefresh()
+	if not (C_Timer and type(C_Timer.NewTimer) == "function") then
+		flushEncounterEventColorRefresh()
+		return
+	end
+	if M._encounterColorRefreshTimer and M._encounterColorRefreshTimer.Cancel then
+		M._encounterColorRefreshTimer:Cancel()
+	end
+	M._encounterColorRefreshTimer = C_Timer.NewTimer(0.25, function()
+		M._encounterColorRefreshTimer = nil
+		flushEncounterEventColorRefresh()
+	end)
+	if type(M.EnsureEncounterEventCache) == "function" then
+		M._cacheRebuildPending = true
+	end
+end
+
+local function ensureColorPickerCloseHook()
+	if M._sbmColorPickerCloseHooked then
+		return
+	end
+	local pickerFrame = _G.ColorPickerFrame
+	if not (pickerFrame and type(pickerFrame.HookScript) == "function") then
+		return
+	end
+	local function flushPendingColorCommit()
+		local commit = M._sbmPendingColorCommit
+		M._sbmPendingColorCommit = nil
+		if type(commit) == "function" then
+			commit()
+		end
+	end
+	pickerFrame:HookScript("OnHide", function()
+		-- Let any immediate confirmation callbacks run first.
+		if C_Timer and type(C_Timer.After) == "function" then
+			C_Timer.After(0, flushPendingColorCommit)
+		else
+			flushPendingColorCommit()
+		end
+	end)
+	M._sbmColorPickerCloseHooked = true
+end
+
+local INDICATOR_COLOR_ORDER = {
+	"deadly",
+	"enrage",
+	"bleed",
+	"magic",
+	"disease",
+	"curse",
+	"poison",
+	"tank",
+	"healer",
+	"dps",
+	"severitylow",
+	"severitymedium",
+	"severityhigh",
+}
+
+local INDICATOR_COLOR_LABELS = {
+	deadly = "Deadly",
+	enrage = "Enrage",
+	bleed = "Bleed",
+	magic = "Magic",
+	disease = "Disease",
+	curse = "Curse",
+	poison = "Poison",
+	tank = "Tank",
+	healer = "Healer",
+	dps = "DPS",
+	severitylow = "Low",
+	severitymedium = "Medium",
+	severityhigh = "High",
+}
+
+local INDICATOR_PRIORITY_GROUP_LABELS = {
+	playerRole = "Player Role",
+	dispels = "Dispels",
+	roles = "Roles",
+	other = "Other",
+	severity = "Severity",
+}
+
+local CACHE_MASK_ORDER = {
+	"deadly",
+	"enrage",
+	"bleed",
+	"magic",
+	"disease",
+	"curse",
+	"poison",
+	"tank",
+	"healer",
+	"dps",
+}
+
+local CACHE_MASK_MAP = {
+	deadly = 1,
+	enrage = 2,
+	bleed = 4,
+	magic = 8,
+	disease = 16,
+	curse = 32,
+	poison = 64,
+	tank = 128,
+	healer = 256,
+	dps = 512,
+}
+
 local function isAddonLoaded(name)
 	if C_AddOns and C_AddOns.IsAddOnLoaded then
 		return C_AddOns.IsAddOnLoaded(name)
@@ -159,32 +282,169 @@ function M:ApplyGeneralConfig(gap, autoInsertKeystone)
 	M:LayoutAll()
 end
 
-function M:ApplyConnectorHideDBMBars(enabled)
-	SimpleBossModsDB.cfg.connectors = SimpleBossModsDB.cfg.connectors or {}
-	SimpleBossModsDB.cfg.connectors.hideDBMBars = enabled and true or false
+function M:ApplyIndicatorPriorityGroups(groups)
+	if type(groups) ~= "table" then
+		return
+	end
+	local normalized = groups
+	if type(M.NormalizeIndicatorPriorityGroups) == "function" then
+		normalized = M.NormalizeIndicatorPriorityGroups(groups)
+	end
+	SimpleBossModsDB.cfg.general.indicatorPriorityGroups = normalized
 	M.SyncLiveConfig()
-	if self.ApplyDBMConnectorBarVisibility then
-		self:ApplyDBMConnectorBarVisibility(self.GetActiveConnectorID and self:GetActiveConnectorID() or nil)
+	requestEncounterEventColorRefresh()
+	if self.Tick then
+		self:Tick()
+	end
+	if self.LayoutAll then
+		self:LayoutAll()
 	end
 end
 
-function M:ApplyConnectorHideBigWigsBars(enabled)
-	SimpleBossModsDB.cfg.connectors = SimpleBossModsDB.cfg.connectors or {}
-	SimpleBossModsDB.cfg.connectors.hideBigWigsBars = enabled and true or false
+function M:ApplyPriorityPresetIndicators()
+	local gc = SimpleBossModsDB.cfg.general
+	local defaults = M.Defaults.cfg.general
+	gc.indicatorPriorityGroups = (type(M.NormalizeIndicatorPriorityGroups) == "function")
+		and M.NormalizeIndicatorPriorityGroups(defaults.indicatorPriorityGroups)
+		or defaults.indicatorPriorityGroups
+	gc.useDispelColors = defaults.useDispelColors ~= false
+	gc.useRoleColors = defaults.useRoleColors ~= false
+	gc.useOtherColors = defaults.useOtherColors ~= false
+	gc.usePlayerRoleColor = defaults.usePlayerRoleColor ~= false
+	gc.useSeverityColors = defaults.useSeverityColors ~= false
+
 	M.SyncLiveConfig()
-	if self.ApplyBigWigsConnectorBarVisibility then
-		self:ApplyBigWigsConnectorBarVisibility(self.GetActiveConnectorID and self:GetActiveConnectorID() or nil)
+	requestEncounterEventColorRefresh()
+	if self.Tick then
+		self:Tick()
+	end
+	if self.LayoutAll then
+		self:LayoutAll()
 	end
 end
 
-function M:ApplyConnectorUseRecommendedSettings(enabled)
-	SimpleBossModsDB.cfg.connectors = SimpleBossModsDB.cfg.connectors or {}
-	SimpleBossModsDB.cfg.connectors.useRecommendedSettings = enabled and true or false
+function M:ApplyPriorityPresetSeverity()
+	local gc = SimpleBossModsDB.cfg.general
+	gc.useDispelColors = false
+	gc.useRoleColors = false
+	gc.useOtherColors = false
+	gc.usePlayerRoleColor = false
+	gc.useSeverityColors = true
+
 	M.SyncLiveConfig()
-	if self.ApplyTimelineConnectorMode then
+	requestEncounterEventColorRefresh()
+	if self.Tick then
+		self:Tick()
+	end
+	if self.LayoutAll then
+		self:LayoutAll()
+	end
+end
+
+function M:ApplyUseDispelColors(enabled)
+	SimpleBossModsDB.cfg.general.useDispelColors = enabled and true or false
+	M.SyncLiveConfig()
+	requestEncounterEventColorRefresh()
+	if self.Tick then
+		self:Tick()
+	end
+	if self.LayoutAll then
+		self:LayoutAll()
+	end
+end
+
+function M:ApplyUseRoleColors(enabled)
+	SimpleBossModsDB.cfg.general.useRoleColors = enabled and true or false
+	M.SyncLiveConfig()
+	requestEncounterEventColorRefresh()
+	if self.Tick then
+		self:Tick()
+	end
+	if self.LayoutAll then
+		self:LayoutAll()
+	end
+end
+
+function M:ApplyUseOtherColors(enabled)
+	SimpleBossModsDB.cfg.general.useOtherColors = enabled and true or false
+	M.SyncLiveConfig()
+	requestEncounterEventColorRefresh()
+	if self.Tick then
+		self:Tick()
+	end
+	if self.LayoutAll then
+		self:LayoutAll()
+	end
+end
+
+function M:ApplyUsePlayerRoleColor(enabled)
+	SimpleBossModsDB.cfg.general.usePlayerRoleColor = enabled and true or false
+	M.SyncLiveConfig()
+	requestEncounterEventColorRefresh()
+	if self.Tick then
+		self:Tick()
+	end
+	if self.LayoutAll then
+		self:LayoutAll()
+	end
+end
+
+function M:ApplyUseSeverityColors(enabled)
+	SimpleBossModsDB.cfg.general.useSeverityColors = enabled and true or false
+	M.SyncLiveConfig()
+	requestEncounterEventColorRefresh()
+	if self.Tick then
+		self:Tick()
+	end
+	if self.LayoutAll then
+		self:LayoutAll()
+	end
+end
+
+function M:ApplyUseIconBorderColors(enabled)
+	SimpleBossModsDB.cfg.general.useIconBorderColors = enabled and true or false
+	M.SyncLiveConfig()
+	if self.Tick then
+		self:Tick()
+	end
+	if self.LayoutAll then
+		self:LayoutAll()
+	end
+end
+
+function M:ApplyUseCustomPlayerRoleColor(enabled)
+	SimpleBossModsDB.cfg.general.useCustomPlayerRoleColor = enabled and true or false
+	M.SyncLiveConfig()
+	requestEncounterEventColorRefresh()
+	if self.LayoutAll then
+		self:LayoutAll()
+	end
+end
+
+function M:ApplyCustomPlayerRoleColor(r, g, b, a)
+	local crc = SimpleBossModsDB.cfg.general.customPlayerRoleColor or {}
+	crc.r = U.clamp(tonumber(r) or 1.0, 0, 1)
+	crc.g = U.clamp(tonumber(g) or 0.84, 0, 1)
+	crc.b = U.clamp(tonumber(b) or 0.0, 0, 1)
+	crc.a = U.clamp(tonumber(a) or 1.0, 0, 1)
+	SimpleBossModsDB.cfg.general.customPlayerRoleColor = crc
+	
+	M.SyncLiveConfig()
+	requestEncounterEventColorRefresh()
+	if self.LayoutAll then
+		self:LayoutAll()
+	end
+end
+
+function M:ApplyGeneralTimelineRecommendedSettings(enabled)
+	SimpleBossModsDB.cfg.general.useRecommendedTimelineSettings = enabled and true or false
+	M.SyncLiveConfig()
+	if self.ApplyTimelineRecommendedMode then
+		self:ApplyTimelineRecommendedMode()
+	elseif self.ApplyTimelineConnectorMode then
 		self:ApplyTimelineConnectorMode()
 	end
-	if not enabled and self.GetActiveConnectorID and self:GetActiveConnectorID() == "timeline" then
+	if not enabled then
 		local timelineFrame = _G.EncounterTimeline
 		if timelineFrame and type(timelineFrame.Show) == "function" then
 			pcall(timelineFrame.Show, timelineFrame)
@@ -192,44 +452,27 @@ function M:ApplyConnectorUseRecommendedSettings(enabled)
 	end
 end
 
-function M:ApplyConnectorDisableBlizzardTimeline(enabled)
-	SimpleBossModsDB.cfg.connectors = SimpleBossModsDB.cfg.connectors or {}
-	SimpleBossModsDB.cfg.connectors.disableBlizzardTimeline = enabled and true or false
-	M.SyncLiveConfig()
-	if self.ApplyConnectorTimelineState then
-		self:ApplyConnectorTimelineState(self.GetActiveConnectorID and self:GetActiveConnectorID() or nil)
+function M:ApplyGeneralIndicatorColor(key, r, g, b, a)
+	local defaults = M.Defaults.cfg.general.indicatorColors[key]
+	if not defaults then
+		return
 	end
-end
+	local gc = SimpleBossModsDB.cfg.general
+	gc.indicatorColors = gc.indicatorColors or {}
+	gc.indicatorColors[key] = gc.indicatorColors[key] or {}
+	gc.indicatorColors[key].r = U.clamp(tonumber(r) or defaults.r, 0, 1)
+	gc.indicatorColors[key].g = U.clamp(tonumber(g) or defaults.g, 0, 1)
+	gc.indicatorColors[key].b = U.clamp(tonumber(b) or defaults.b, 0, 1)
+	gc.indicatorColors[key].a = U.clamp(tonumber(a) or defaults.a, 0, 1)
 
-function M:ApplyConnectorUseDBMColors(enabled)
-	SimpleBossModsDB.cfg.connectors = SimpleBossModsDB.cfg.connectors or {}
-	SimpleBossModsDB.cfg.connectors.useDBMColors = enabled and true or false
 	M.SyncLiveConfig()
-	if self.GetActiveConnectorID and self:GetActiveConnectorID() == "dbm" then
-		if self.Tick then
-			self:Tick()
-		end
-		if self.LayoutAll then
-			self:LayoutAll()
-		end
-	end
-end
+	requestEncounterEventColorRefresh()
 
-function M:ApplyConnectorBigWigsColorMode(mode)
-	SimpleBossModsDB.cfg.connectors = SimpleBossModsDB.cfg.connectors or {}
-	mode = (type(mode) == "string") and mode:lower() or "normal"
-	if mode ~= "emphasized" then
-		mode = "normal"
+	if self.Tick then
+		self:Tick()
 	end
-	SimpleBossModsDB.cfg.connectors.bigWigsColorMode = mode
-	M.SyncLiveConfig()
-	if self.GetActiveConnectorID and self:GetActiveConnectorID() == "bigwigs" then
-		if self.Tick then
-			self:Tick()
-		end
-		if self.LayoutAll then
-			self:LayoutAll()
-		end
+	if self.LayoutAll then
+		self:LayoutAll()
 	end
 end
 
@@ -517,6 +760,7 @@ function M:ApplyBarThresholdConfig(threshold)
 	gc.thresholdToBar = U.clamp(v, 0.1, 600)
 
 	M.SyncLiveConfig()
+	requestEncounterEventColorRefresh()
 
 	for id, rec in pairs(self.events) do
 		self:updateRecord(id, rec.eventInfo, rec.remaining)
@@ -532,46 +776,6 @@ function M:ApplyBarColor(r, g, b, a)
 	bc.color.g = U.clamp(tonumber(g) or L.BAR_FG_G, 0, 1)
 	bc.color.b = U.clamp(tonumber(b) or L.BAR_FG_B, 0, 1)
 	bc.color.a = U.clamp(tonumber(a) or L.BAR_FG_A, 0, 1)
-
-	M.SyncLiveConfig()
-
-	for id, rec in pairs(self.events) do
-		self:updateRecord(id, rec.eventInfo, rec.remaining)
-	end
-	for _, f in ipairs(M.pools.bar) do
-		M.setBarFillFlat(f, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
-	end
-	self:LayoutAll()
-end
-
-function M:ApplySeverityColor(level, r, g, b, a)
-	local key = tostring(level or ""):lower()
-	if key ~= "low" and key ~= "medium" and key ~= "high" then
-		return
-	end
-
-	local cfg = SimpleBossModsDB.cfg
-	cfg.colors = cfg.colors or {}
-	cfg.colors.severity = cfg.colors.severity or {}
-	cfg.colors.severity[key] = cfg.colors.severity[key] or {}
-
-	local target = cfg.colors.severity[key]
-	if key == "low" then
-		target.r = U.clamp(tonumber(r) or L.SEVERITY_LOW_R, 0, 1)
-		target.g = U.clamp(tonumber(g) or L.SEVERITY_LOW_G, 0, 1)
-		target.b = U.clamp(tonumber(b) or L.SEVERITY_LOW_B, 0, 1)
-		target.a = U.clamp(tonumber(a) or L.SEVERITY_LOW_A, 0, 1)
-	elseif key == "high" then
-		target.r = U.clamp(tonumber(r) or L.SEVERITY_HIGH_R, 0, 1)
-		target.g = U.clamp(tonumber(g) or L.SEVERITY_HIGH_G, 0, 1)
-		target.b = U.clamp(tonumber(b) or L.SEVERITY_HIGH_B, 0, 1)
-		target.a = U.clamp(tonumber(a) or L.SEVERITY_HIGH_A, 0, 1)
-	else
-		target.r = U.clamp(tonumber(r) or L.SEVERITY_MEDIUM_R, 0, 1)
-		target.g = U.clamp(tonumber(g) or L.SEVERITY_MEDIUM_G, 0, 1)
-		target.b = U.clamp(tonumber(b) or L.SEVERITY_MEDIUM_B, 0, 1)
-		target.a = U.clamp(tonumber(a) or L.SEVERITY_MEDIUM_A, 0, 1)
-	end
 
 	M.SyncLiveConfig()
 
@@ -929,7 +1133,7 @@ function M:OpenSettings()
 			frame:Raise()
 		end
 		if self._settingsTabGroup and self._settingsTabStatus then
-			self._settingsTabGroup:SelectTab(self._settingsTabStatus.selected or "Connectors")
+			self._settingsTabGroup:SelectTab(self._settingsTabStatus.selected or "General")
 		elseif frame._refreshAll then
 			frame._refreshAll()
 		end
@@ -941,919 +1145,7 @@ function M:OpenSettings()
 	end
 end
 
-function M:CreateLegacySettingsWindow()
-	if self._settingsWindow then return self._settingsWindow end
-	if self.EnsureDefaults then
-		self:EnsureDefaults()
-	end
-
-	local panel = CreateFrame("Frame", "SimpleBossModsSettings", UIParent, "ButtonFrameTemplate")
-	panel:SetSize(420, 640)
-	panel:SetPoint("CENTER")
-	panel:SetToplevel(true)
-	panel:SetFrameStrata("DIALOG")
-	panel:SetClampedToScreen(true)
-	panel:SetMovable(true)
-	panel:EnableMouse(true)
-	panel:RegisterForDrag("LeftButton")
-	panel:SetScript("OnDragStart", panel.StartMoving)
-	panel:SetScript("OnDragStop", panel.StopMovingOrSizing)
-	panel:Hide()
-
-	if ButtonFrameTemplate_HidePortrait then
-		ButtonFrameTemplate_HidePortrait(panel)
-	end
-	if panel.TitleText then
-		panel.TitleText:SetText("Simple Boss Mods")
-	end
-	if type(UISpecialFrames) == "table" and panel:GetName() then
-		table.insert(UISpecialFrames, panel:GetName())
-	end
-
-	local inset = panel.Inset or panel
-	local TAB_TOP_OFFSET = -34
-	local TAB_X_OFFSET = 20
-	local BOTTOM_BAR_HEIGHT = 28
-	local BOTTOM_BAR_PADDING = 10
-	local LABEL_X = 0
-	local INPUT_X = 204
-	local ROW_H = 26
-	local SECTION_INDENT = 8
-	local HEADER_SPACING = 6
-	local SECTION_SPACING = 12
-	local inputs = {}
-	local tabs = {}
-	local tabsById = {}
-	local SelectTab
-
-	panel.tabPadding = 8
-	panel.minTabWidth = 70
-	panel.maxTabWidth = 140
-
-	local function LayoutTab(tab)
-		if not tab then return end
-		local content = tab.content
-		if not content then return end
-		local y = -8
-		for _, section in ipairs(tab.sections) do
-			local header = section.header
-			header:Show()
-			header:ClearAllPoints()
-			header:SetPoint("TOPLEFT", content, "TOPLEFT", 0, y)
-			header:SetPoint("RIGHT", content, "RIGHT", -8, 0)
-			header:UpdateCollapsedState(section.collapsed)
-			y = y - header:GetHeight() - HEADER_SPACING
-
-			if section.collapsed then
-				for _, row in ipairs(section.rows) do
-					row:Hide()
-				end
-			else
-				for _, row in ipairs(section.rows) do
-					row:Show()
-					row:ClearAllPoints()
-					row:SetPoint("TOPLEFT", content, "TOPLEFT", section.indent or 0, y)
-					row:SetPoint("RIGHT", content, "RIGHT", -8, 0)
-					y = y - (row.height or ROW_H)
-				end
-			end
-
-			y = y - SECTION_SPACING
-		end
-		content:SetHeight((-y) + 8)
-	end
-
-	local function CreateTab(id, label)
-		local tab = {
-			id = id,
-			label = label,
-			sections = {},
-		}
-
-		local button = CreateFrame("Button", nil, panel, "PanelTopTabButtonTemplate")
-		button:SetID(id)
-		button:SetText(label)
-		if id == 1 then
-			button:SetPoint("TOPLEFT", panel, "TOPLEFT", TAB_X_OFFSET, -28)
-		end
-		tab.button = button
-
-		local scroll = CreateFrame("ScrollFrame", nil, inset, "UIPanelScrollFrameTemplate")
-		scroll:SetPoint("TOPLEFT", inset, "TOPLEFT", 4, TAB_TOP_OFFSET)
-		scroll:SetPoint("BOTTOMRIGHT", inset, "BOTTOMRIGHT", -26, 6 + BOTTOM_BAR_HEIGHT + BOTTOM_BAR_PADDING)
-		scroll:Hide()
-
-		local content = CreateFrame("Frame", nil, scroll)
-		content:SetPoint("TOPLEFT", 0, 0)
-		content:SetPoint("TOPRIGHT", 0, 0)
-		content:SetHeight(1)
-		scroll:SetScrollChild(content)
-
-		tab.scroll = scroll
-		tab.content = content
-
-		scroll:HookScript("OnSizeChanged", function(self, width)
-			content:SetWidth(width)
-			LayoutTab(tab)
-		end)
-		content:SetWidth(scroll:GetWidth() or 1)
-
-		button:SetScript("OnClick", function()
-			SelectTab(id)
-		end)
-
-		table.insert(tabs, tab)
-		tabsById[id] = tab
-		return tab
-	end
-
-	SelectTab = function(id)
-		local tab = tabsById[id] or tabs[1]
-		if not tab then return end
-		for _, t in ipairs(tabs) do
-			t.scroll:SetShown(t == tab)
-		end
-		PanelTemplates_SetTab(panel, tab.id)
-		LayoutTab(tab)
-	end
-
-	local function OpenColorPicker(r, g, b, a, changedCallback)
-		if not ColorPickerFrame then return end
-		local function getPickerAlpha()
-			if ColorPickerFrame.GetColorAlpha then
-				return ColorPickerFrame:GetColorAlpha()
-			end
-			if OpacitySliderFrame and OpacitySliderFrame.GetValue then
-				return OpacitySliderFrame:GetValue()
-			end
-			return a or 1
-		end
-		local function apply()
-			local nr, ng, nb = ColorPickerFrame:GetColorRGB()
-			local na = getPickerAlpha()
-			changedCallback(nr, ng, nb, na)
-		end
-
-		if ColorPickerFrame.SetupColorPickerAndShow then
-			local info = {
-				r = r,
-				g = g,
-				b = b,
-				opacity = a or 1,
-				hasOpacity = true,
-				swatchFunc = apply,
-				opacityFunc = apply,
-				cancelFunc = function(prev)
-					if not prev then return end
-					local pr = prev.r or r
-					local pg = prev.g or g
-					local pb = prev.b or b
-					local pa = prev.opacity or prev.a or a or 1
-					changedCallback(pr, pg, pb, pa)
-				end,
-				previousValues = { r = r, g = g, b = b, opacity = a or 1 },
-			}
-			ColorPickerFrame:SetupColorPickerAndShow(info)
-			return
-		end
-
-		ColorPickerFrame:Hide()
-		ColorPickerFrame.hasOpacity = true
-		ColorPickerFrame.opacity = 1 - (a or 1)
-		ColorPickerFrame.previousValues = { r = r, g = g, b = b, a = a }
-		ColorPickerFrame.func = apply
-		ColorPickerFrame.opacityFunc = apply
-		ColorPickerFrame.cancelFunc = function(prev)
-			if not prev then return end
-			local pr = prev.r or r
-			local pg = prev.g or g
-			local pb = prev.b or b
-			local pa = prev.a or (prev.opacity and (1 - prev.opacity)) or a or 1
-			changedCallback(pr, pg, pb, pa)
-		end
-		ColorPickerFrame:SetColorRGB(r, g, b)
-		ColorPickerFrame:Show()
-	end
-
-	local function buildFontOptions()
-		if not LSM then return nil end
-		local list = {}
-		for key in pairs(LSM:HashTable("font")) do
-			list[#list + 1] = { label = key, value = key }
-		end
-		table.sort(list, function(a, b) return a.label < b.label end)
-		return list
-	end
-
-
-	local function CreateSection(tab, title, collapsed)
-		local header = CreateFrame("Button", nil, tab.content, "ListHeaderThreeSliceTemplate")
-		header:SetHeaderText(title)
-		local section = {
-			header = header,
-			rows = {},
-			collapsed = collapsed and true or false,
-			indent = SECTION_INDENT,
-		}
-		header:SetClickHandler(function()
-			section.collapsed = not section.collapsed
-			header:UpdateCollapsedState(section.collapsed)
-			LayoutTab(tab)
-		end)
-		header:UpdateCollapsedState(section.collapsed)
-		table.insert(tab.sections, section)
-		return section
-	end
-
-	local function CreateRow(section, height)
-		local row = CreateFrame("Frame", nil, section.header:GetParent())
-		row.height = height or ROW_H
-		row:SetHeight(row.height)
-		table.insert(section.rows, row)
-		return row
-	end
-
-	local function AddNumberRow(section, label, get, set, tooltip, allowDecimal, allowNegative)
-		local row = CreateRow(section, ROW_H)
-		local fs = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-		fs:SetPoint("LEFT", row, "LEFT", LABEL_X, 0)
-		fs:SetText(label)
-		fs:SetJustifyH("LEFT")
-
-		local eb = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
-		eb:SetSize(110, 22)
-		eb:SetAutoFocus(false)
-		eb:SetPoint("LEFT", row, "LEFT", INPUT_X, 0)
-
-		-- allow decimals: do NOT SetNumeric(true) (it blocks '.' in many clients)
-		if not allowDecimal and not allowNegative then
-			eb:SetNumeric(true)
-		end
-
-		local function refresh()
-			local v = get()
-			eb:SetText(tostring(v))
-		end
-
-		local function apply()
-			local v = tonumber(eb:GetText())
-			if v == nil then
-				refresh()
-				return
-			end
-			set(v)
-			refresh()
-		end
-
-		eb:SetScript("OnEnterPressed", function(self) self:ClearFocus(); apply() end)
-		eb:SetScript("OnEditFocusLost", function() apply() end)
-		eb:SetScript("OnEscapePressed", function(self) self:ClearFocus(); refresh() end)
-
-		if tooltip then
-			fs:SetScript("OnEnter", function()
-				GameTooltip:SetOwner(fs, "ANCHOR_RIGHT")
-				GameTooltip:SetText(tooltip, 1, 1, 1, 1, true)
-				GameTooltip:Show()
-			end)
-			fs:SetScript("OnLeave", function() GameTooltip:Hide() end)
-		end
-
-		table.insert(inputs, refresh)
-		return eb
-	end
-
-	local function AddTextRow(section, label, get, set, tooltip)
-		local row = CreateRow(section, ROW_H)
-		local fs = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-		fs:SetPoint("LEFT", row, "LEFT", LABEL_X, 0)
-		fs:SetText(label)
-		fs:SetJustifyH("LEFT")
-
-		local eb = CreateFrame("EditBox", nil, row, "InputBoxTemplate")
-		eb:SetSize(180, 22)
-		eb:SetAutoFocus(false)
-		eb:SetPoint("LEFT", row, "LEFT", INPUT_X, 0)
-
-		local function refresh()
-			local v = get()
-			if v == nil then v = "" end
-			eb:SetText(tostring(v))
-		end
-
-		local function apply()
-			local v = eb:GetText()
-			set(v)
-			refresh()
-		end
-
-		eb:SetScript("OnEnterPressed", function(self) self:ClearFocus(); apply() end)
-		eb:SetScript("OnEditFocusLost", function() apply() end)
-		eb:SetScript("OnEscapePressed", function(self) self:ClearFocus(); refresh() end)
-
-		if tooltip then
-			fs:SetScript("OnEnter", function()
-				GameTooltip:SetOwner(fs, "ANCHOR_RIGHT")
-				GameTooltip:SetText(tooltip, 1, 1, 1, 1, true)
-				GameTooltip:Show()
-			end)
-			fs:SetScript("OnLeave", function() GameTooltip:Hide() end)
-		end
-
-		table.insert(inputs, refresh)
-		return eb
-	end
-
-	local function AddCheckRow(section, label, get, set, tooltip)
-		local row = CreateRow(section, ROW_H)
-		local cb = CreateFrame("CheckButton", nil, row, "ChatConfigCheckButtonTemplate")
-		cb:SetPoint("LEFT", row, "LEFT", LABEL_X, 0)
-		if cb.Text then
-			cb.Text:SetText(label)
-		elseif cb.text then
-			cb.text:SetText(label)
-		else
-			local t = cb:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-			t:SetPoint("LEFT", cb, "RIGHT", 4, 0)
-			t:SetText(label)
-			cb._label = t
-		end
-
-		local function refresh()
-			cb:SetChecked(get() and true or false)
-		end
-
-		cb:SetScript("OnClick", function(self)
-			set(self:GetChecked() and true or false)
-		end)
-
-		if tooltip then
-			cb:SetScript("OnEnter", function()
-				GameTooltip:SetOwner(cb, "ANCHOR_RIGHT")
-				GameTooltip:SetText(tooltip, 1, 1, 1, 1, true)
-				GameTooltip:Show()
-			end)
-			cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
-		end
-
-		table.insert(inputs, refresh)
-		return cb
-	end
-
-	local function AddDropdownRow(section, label, options, get, set, tooltip)
-		local row = CreateRow(section, ROW_H)
-		local fs = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-		fs:SetPoint("LEFT", row, "LEFT", LABEL_X, 0)
-		fs:SetText(label)
-
-		local dd = CreateFrame("Frame", nil, row, "UIDropDownMenuTemplate")
-		dd:SetPoint("TOPLEFT", row, "TOPLEFT", INPUT_X - 16, -6)
-		UIDropDownMenu_SetWidth(dd, 110)
-
-		local function refresh()
-			local val = get()
-			local text = nil
-			for _, opt in ipairs(options) do
-				if opt.value == val then
-					text = opt.label
-					break
-				end
-			end
-			UIDropDownMenu_SetSelectedValue(dd, val)
-			UIDropDownMenu_SetText(dd, text or tostring(val or ""))
-		end
-
-		UIDropDownMenu_Initialize(dd, function(_, level)
-			if level and level > 1 then return end
-			for _, opt in ipairs(options) do
-				local info = UIDropDownMenu_CreateInfo()
-				info.text = opt.label
-				info.arg1 = opt.value
-				info.func = function(_, arg1)
-					set(arg1)
-					UIDropDownMenu_SetSelectedValue(dd, arg1)
-					UIDropDownMenu_SetText(dd, opt.label)
-				end
-				info.checked = (get() == opt.value)
-				UIDropDownMenu_AddButton(info)
-			end
-		end)
-
-		if tooltip then
-			fs:SetScript("OnEnter", function()
-				GameTooltip:SetOwner(fs, "ANCHOR_RIGHT")
-				GameTooltip:SetText(tooltip, 1, 1, 1, 1, true)
-				GameTooltip:Show()
-			end)
-			fs:SetScript("OnLeave", function() GameTooltip:Hide() end)
-		end
-
-		table.insert(inputs, refresh)
-		return dd
-	end
-
-	local function AddColorRow(section, label, get, set)
-		local row = CreateRow(section, ROW_H)
-		local fs = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-		fs:SetPoint("LEFT", row, "LEFT", LABEL_X, 0)
-		fs:SetText(label)
-
-		local swatch = CreateFrame("Button", nil, row, "BackdropTemplate")
-		swatch:SetSize(22, 22)
-		swatch:SetPoint("LEFT", row, "LEFT", INPUT_X, 0)
-		swatch:SetBackdrop({
-			bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
-			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-			edgeSize = 12,
-			insets = { left = 2, right = 2, top = 2, bottom = 2 },
-		})
-		swatch:SetBackdropColor(0, 0, 0, 1)
-
-		local tex = swatch:CreateTexture(nil, "ARTWORK")
-		tex:SetPoint("TOPLEFT", 3, -3)
-		tex:SetPoint("BOTTOMRIGHT", -3, 3)
-		swatch.tex = tex
-
-		local function refresh()
-			local r, g, b, a = get()
-			swatch.tex:SetColorTexture(r, g, b, a or 1)
-		end
-
-		swatch:SetScript("OnClick", function()
-			local r, g, b, a = get()
-			OpenColorPicker(r, g, b, a or 1, function(nr, ng, nb, na)
-				set(nr, ng, nb, na)
-				refresh()
-			end)
-		end)
-
-		table.insert(inputs, refresh)
-		return swatch
-	end
-
-	local function AddButton(section, label, onClick)
-		local row = CreateRow(section, ROW_H)
-		local btn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
-		btn:SetSize(160, 22)
-		btn:SetPoint("LEFT", row, "LEFT", LABEL_X, 0)
-		btn:SetText(label)
-		btn:SetScript("OnClick", onClick)
-		return btn
-	end
-
-	local function RefreshAll()
-		if M and M.EnsureDefaults then
-			M:EnsureDefaults()
-		end
-		for _, r in ipairs(inputs) do r() end
-	end
-
-	local displayTab = CreateTab(1, "Display")
-	local dungeonTab = CreateTab(2, "Dungeon")
-	local combatTab = CreateTab(3, "Combat Timer")
-	local privateTab = CreateTab(4, "Private Auras")
-
-	PanelTemplates_SetNumTabs(panel, #tabs)
-	local bottomBar = CreateFrame("Frame", nil, panel)
-	bottomBar:SetPoint("BOTTOMLEFT", panel, "BOTTOMLEFT", 10, 8)
-	bottomBar:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -10, 8)
-	bottomBar:SetHeight(BOTTOM_BAR_HEIGHT)
-
-	local startBtn = CreateFrame("Button", nil, bottomBar, "UIPanelButtonTemplate")
-	startBtn:SetSize(120, 22)
-	startBtn:SetPoint("CENTER", bottomBar, "CENTER", -70, 0)
-	startBtn:SetText("Start Test")
-	startBtn:SetScript("OnClick", function() M:StartTest() end)
-
-	local stopBtn = CreateFrame("Button", nil, bottomBar, "UIPanelButtonTemplate")
-	stopBtn:SetSize(120, 22)
-	stopBtn:SetPoint("LEFT", startBtn, "RIGHT", 12, 0)
-	stopBtn:SetText("Stop Test")
-	stopBtn:SetScript("OnClick", function() M:StopTest() end)
-
-	local dungeonSection = CreateSection(dungeonTab, "Mythic+")
-	AddCheckRow(dungeonSection, "Auto Insert Keystone",
-		function() return SimpleBossModsDB.cfg.general.autoInsertKeystone end,
-		function(v) M:ApplyGeneralConfig(SimpleBossModsDB.cfg.general.gap or 6, v) end,
-		"Automatically inserts your keystone when the Mythic+ socket opens."
-	)
-
-	local iconGrowDirections = {
-		{ label = "Left down", value = "LEFT_DOWN" },
-		{ label = "Left up", value = "LEFT_UP" },
-		{ label = "Right down", value = "RIGHT_DOWN" },
-		{ label = "Right up", value = "RIGHT_UP" },
-	}
-
-	local barGrowDirections = {
-		{ label = "Up", value = "UP" },
-		{ label = "Down", value = "DOWN" },
-	}
-
-	local barSortOptions = {
-		{ label = "Ascending (lowest first)", value = "ASC" },
-		{ label = "Descending (highest first)", value = "DESC" },
-	}
-
-	local barFillOptions = {
-		{ label = "Left", value = "LEFT" },
-		{ label = "Right", value = "RIGHT" },
-	}
-
-	local iconsSection = CreateSection(displayTab, "Icons")
-	AddCheckRow(iconsSection, "Enable Large Icons",
-		function() return SimpleBossModsDB.cfg.icons.enabled ~= false end,
-		function(v) M:ApplyIconEnabled(v) end,
-		"Disables the big icon row above/below the bars."
-	)
-	AddNumberRow(iconsSection, "Indicator Size",
-		function() return SimpleBossModsDB.cfg.indicators.iconSize or 0 end,
-		function(v) M:ApplyIndicatorConfig(v, SimpleBossModsDB.cfg.indicators.barSize or 0) end,
-		"0 uses auto size."
-	)
-	AddNumberRow(iconsSection, "Gap",
-		function() return SimpleBossModsDB.cfg.icons.gap end,
-		function(v) M:ApplyIconLayoutConfig(v, SimpleBossModsDB.cfg.icons.perRow, SimpleBossModsDB.cfg.icons.limit) end,
-		"Space between large icons. Supports negative values."
-	)
-	AddNumberRow(iconsSection, "Per Row",
-		function() return SimpleBossModsDB.cfg.icons.perRow end,
-		function(v) M:ApplyIconLayoutConfig(SimpleBossModsDB.cfg.icons.gap, v, SimpleBossModsDB.cfg.icons.limit) end
-	)
-	AddNumberRow(iconsSection, "Max",
-		function() return SimpleBossModsDB.cfg.icons.limit end,
-		function(v) M:ApplyIconLayoutConfig(SimpleBossModsDB.cfg.icons.gap, SimpleBossModsDB.cfg.icons.perRow, v) end,
-		"0 means unlimited."
-	)
-	AddNumberRow(iconsSection, "Size",
-		function() return SimpleBossModsDB.cfg.icons.size end,
-		function(v) M:ApplyIconConfig(v, SimpleBossModsDB.cfg.icons.fontSize, SimpleBossModsDB.cfg.icons.borderThickness) end
-	)
-	AddNumberRow(iconsSection, "Font Size",
-		function() return SimpleBossModsDB.cfg.icons.fontSize end,
-		function(v) M:ApplyIconConfig(SimpleBossModsDB.cfg.icons.size, v, SimpleBossModsDB.cfg.icons.borderThickness) end
-	)
-	AddNumberRow(iconsSection, "Border Thickness",
-		function() return SimpleBossModsDB.cfg.icons.borderThickness end,
-		function(v) M:ApplyIconConfig(SimpleBossModsDB.cfg.icons.size, SimpleBossModsDB.cfg.icons.fontSize, v) end,
-		"0 disables icon border."
-	)
-	AddDropdownRow(iconsSection, "Grow Direction",
-		iconGrowDirections,
-		function() return SimpleBossModsDB.cfg.icons.growDirection end,
-		function(v) M:ApplyIconGrowDirection(v) end
-	)
-
-	local iconsAnchor = CreateSection(displayTab, "Large Icons Anchor")
-	local iconsAnchorParentOptions = select(1, buildAnchorParentLists(SimpleBossModsDB.cfg.icons.anchorParent))
-	AddDropdownRow(iconsAnchor, "Anchor From",
-		ANCHOR_POINT_OPTIONS,
-		function() return SimpleBossModsDB.cfg.icons.anchorFrom end,
-		function(v) M:ApplyIconAnchorFrom(v) end
-	)
-	AddDropdownRow(iconsAnchor, "Anchor To Parent",
-		iconsAnchorParentOptions,
-		function() return SimpleBossModsDB.cfg.icons.anchorParent end,
-		function(v)
-			M:ApplyIconAnchorParent(v)
-			RefreshAll()
-		end
-	)
-	AddDropdownRow(iconsAnchor, "Anchor To",
-		ANCHOR_POINT_OPTIONS,
-		function() return SimpleBossModsDB.cfg.icons.anchorTo end,
-		function(v) M:ApplyIconAnchorTo(v) end
-	)
-	AddTextRow(iconsAnchor, "Custom Parent (optional)",
-		function() return SimpleBossModsDB.cfg.icons.customParent or "" end,
-		function(v) M:ApplyIconCustomParent(v) end,
-		"Overrides 'Anchor To Parent' when set. Use a global frame name, e.g. UIParent."
-	)
-	AddNumberRow(iconsAnchor, "X Offset",
-		function() return SimpleBossModsDB.cfg.icons.x or 0 end,
-		function(v) M:ApplyIconAnchorPosition(v, SimpleBossModsDB.cfg.icons.y or 0) end,
-		nil, true
-	)
-	AddNumberRow(iconsAnchor, "Y Offset",
-		function() return SimpleBossModsDB.cfg.icons.y or 0 end,
-		function(v) M:ApplyIconAnchorPosition(SimpleBossModsDB.cfg.icons.x or 0, v) end,
-		nil, true
-	)
-
-	local barsAnchor = CreateSection(displayTab, "Bars Anchor")
-	local barsAnchorParentOptions = select(1, buildAnchorParentLists(SimpleBossModsDB.cfg.bars.anchorParent))
-	AddDropdownRow(barsAnchor, "Anchor From",
-		ANCHOR_POINT_OPTIONS,
-		function() return SimpleBossModsDB.cfg.bars.anchorFrom end,
-		function(v) M:ApplyBarAnchorFrom(v) end
-	)
-	AddDropdownRow(barsAnchor, "Anchor To Parent",
-		barsAnchorParentOptions,
-		function() return SimpleBossModsDB.cfg.bars.anchorParent end,
-		function(v)
-			M:ApplyBarAnchorParent(v)
-			RefreshAll()
-		end
-	)
-	AddDropdownRow(barsAnchor, "Anchor To",
-		ANCHOR_POINT_OPTIONS,
-		function() return SimpleBossModsDB.cfg.bars.anchorTo end,
-		function(v) M:ApplyBarAnchorTo(v) end
-	)
-	AddTextRow(barsAnchor, "Custom Parent (optional)",
-		function() return SimpleBossModsDB.cfg.bars.customParent or "" end,
-		function(v) M:ApplyBarCustomParent(v) end,
-		"Overrides 'Anchor To Parent' when set. Use a global frame name, e.g. UIParent."
-	)
-	AddNumberRow(barsAnchor, "X Offset",
-		function() return SimpleBossModsDB.cfg.bars.x or 0 end,
-		function(v) M:ApplyBarAnchorPosition(v, SimpleBossModsDB.cfg.bars.y or 0) end,
-		nil, true
-	)
-	AddNumberRow(barsAnchor, "Y Offset",
-		function() return SimpleBossModsDB.cfg.bars.y or 0 end,
-		function(v) M:ApplyBarAnchorPosition(SimpleBossModsDB.cfg.bars.x or 0, v) end,
-		nil, true
-	)
-
-	local barsSection = CreateSection(displayTab, "Bars")
-	AddNumberRow(barsSection, "Width",
-		function() return SimpleBossModsDB.cfg.bars.width end,
-		function(v) M:ApplyBarConfig(v, SimpleBossModsDB.cfg.bars.height, SimpleBossModsDB.cfg.bars.fontSize, SimpleBossModsDB.cfg.bars.borderThickness) end
-	)
-	AddNumberRow(barsSection, "Height",
-		function() return SimpleBossModsDB.cfg.bars.height end,
-		function(v) M:ApplyBarConfig(SimpleBossModsDB.cfg.bars.width, v, SimpleBossModsDB.cfg.bars.fontSize, SimpleBossModsDB.cfg.bars.borderThickness) end
-	)
-	AddNumberRow(barsSection, "Font Size",
-		function() return SimpleBossModsDB.cfg.bars.fontSize end,
-		function(v) M:ApplyBarConfig(SimpleBossModsDB.cfg.bars.width, SimpleBossModsDB.cfg.bars.height, v, SimpleBossModsDB.cfg.bars.borderThickness) end
-	)
-	AddNumberRow(barsSection, "Border Thickness",
-		function() return SimpleBossModsDB.cfg.bars.borderThickness end,
-		function(v) M:ApplyBarConfig(SimpleBossModsDB.cfg.bars.width, SimpleBossModsDB.cfg.bars.height, SimpleBossModsDB.cfg.bars.fontSize, v) end
-	)
-	AddNumberRow(barsSection, "Indicator Size",
-		function() return SimpleBossModsDB.cfg.indicators.barSize or 0 end,
-		function(v) M:ApplyIndicatorConfig(SimpleBossModsDB.cfg.indicators.iconSize or 0, v) end,
-		"0 uses auto size."
-	)
-	AddNumberRow(barsSection, "Bar Gap",
-		function() return SimpleBossModsDB.cfg.general.gap or 6 end,
-		function(v) M:ApplyGeneralConfig(U.clamp(U.round(v), -30, 30), SimpleBossModsDB.cfg.general.autoInsertKeystone) end,
-		"Space between bars.", false, true
-	)
-	AddDropdownRow(barsSection, "Grow Direction",
-		barGrowDirections,
-		function() return SimpleBossModsDB.cfg.bars.growDirection end,
-		function(v) M:ApplyBarGrowDirection(v) end
-	)
-	AddDropdownRow(barsSection, "Sort Order",
-		barSortOptions,
-		function() return (SimpleBossModsDB.cfg.bars.sortAscending ~= false) and "ASC" or "DESC" end,
-		function(v) M:ApplyBarSortOrder(v) end
-	)
-	AddDropdownRow(barsSection, "Fill Direction",
-		barFillOptions,
-		function() return SimpleBossModsDB.cfg.bars.fillDirection end,
-		function(v) M:ApplyBarFillDirection(v) end
-	)
-	AddNumberRow(barsSection, "Display bars when seconds remaining",
-		function() return SimpleBossModsDB.cfg.general.thresholdToBar end,
-		function(v) M:ApplyBarThresholdConfig(v) end,
-		"Bars show at or below this time. Icons use this threshold when enabled.", true
-	)
-	AddCheckRow(barsSection, "Swap Icon Side",
-		function() return SimpleBossModsDB.cfg.bars.swapIconSide end,
-		function(v) M:ApplyBarIconSideConfig(v) end,
-		"Move the icon to the opposite side."
-	)
-	AddCheckRow(barsSection, "Swap Indicator Side",
-		function() return SimpleBossModsDB.cfg.bars.swapIndicatorSide end,
-		function(v) M:ApplyBarIndicatorSideConfig(v) end,
-		"Move the end indicators to the opposite side."
-	)
-	AddCheckRow(barsSection, "Hide Icon",
-		function() return SimpleBossModsDB.cfg.bars.hideIcon end,
-		function(v) M:ApplyBarIconVisibilityConfig(v) end,
-		"Hide the icon without changing text alignment or fill direction."
-	)
-	AddColorRow(barsSection, "Default Bar Color (Timeline)",
-		function() return L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A end,
-		function(r, g, b, a) M:ApplyBarColor(r, g, b, a) end
-	)
-	AddColorRow(barsSection, "Default Background Color",
-		function() return L.BAR_BG_R, L.BAR_BG_G, L.BAR_BG_B, L.BAR_BG_A end,
-		function(r, g, b, a) M:ApplyBarBgColor(r, g, b, a) end
-	)
-
-	local combatEnable = CreateSection(combatTab, "Combat Timer")
-	AddCheckRow(combatEnable, "Enable Combat Timer",
-		function() return SimpleBossModsDB.cfg.combatTimer.enabled end,
-		function(v) M:ApplyCombatTimerEnabled(v) end,
-		"Shows a timer while you are in combat."
-	)
-
-	local combatAnchor = CreateSection(combatTab, "Anchor")
-	local combatAnchorParentOptions = select(1, buildAnchorParentLists(SimpleBossModsDB.cfg.combatTimer.anchorParent))
-	AddDropdownRow(combatAnchor, "Anchor From",
-		ANCHOR_POINT_OPTIONS,
-		function() return SimpleBossModsDB.cfg.combatTimer.anchorFrom end,
-		function(v) M:ApplyCombatTimerAnchorFrom(v) end
-	)
-	AddDropdownRow(combatAnchor, "Anchor To Parent",
-		combatAnchorParentOptions,
-		function() return SimpleBossModsDB.cfg.combatTimer.anchorParent end,
-		function(v)
-			M:ApplyCombatTimerAnchorParent(v)
-			RefreshAll()
-		end
-	)
-	AddDropdownRow(combatAnchor, "Anchor To",
-		ANCHOR_POINT_OPTIONS,
-		function() return SimpleBossModsDB.cfg.combatTimer.anchorTo end,
-		function(v) M:ApplyCombatTimerAnchorTo(v) end
-	)
-	AddTextRow(combatAnchor, "Custom Parent (optional)",
-		function() return SimpleBossModsDB.cfg.combatTimer.customParent or "" end,
-		function(v) M:ApplyCombatTimerCustomParent(v) end,
-		"Overrides 'Anchor To Parent' when set. Use a global frame name, e.g. PlayerFrame."
-	)
-	AddNumberRow(combatAnchor, "X Offset",
-		function() return SimpleBossModsDB.cfg.combatTimer.x or 0 end,
-		function(v) M:ApplyCombatTimerPosition(v, SimpleBossModsDB.cfg.combatTimer.y or 0) end,
-		nil, true
-	)
-	AddNumberRow(combatAnchor, "Y Offset",
-		function() return SimpleBossModsDB.cfg.combatTimer.y or 0 end,
-		function(v) M:ApplyCombatTimerPosition(SimpleBossModsDB.cfg.combatTimer.x or 0, v) end,
-		nil, true
-	)
-
-	local combatText = CreateSection(combatTab, "Text")
-	AddNumberRow(combatText, "Font Size",
-		function() return SimpleBossModsDB.cfg.combatTimer.fontSize end,
-		function(v) M:ApplyCombatTimerFontSize(v) end
-	)
-
-	local fontOptions = buildFontOptions()
-	if fontOptions then
-		AddDropdownRow(combatText, "Font",
-			fontOptions,
-			function() return SimpleBossModsDB.cfg.combatTimer.font end,
-			function(v) M:ApplyCombatTimerFont(v) end
-		)
-	else
-		local row = CreateRow(combatText, ROW_H)
-		local fs = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-		fs:SetPoint("LEFT", row, "LEFT", LABEL_X, 0)
-		fs:SetText("LibSharedMedia is not available.")
-	end
-
-	local combatColors = CreateSection(combatTab, "Colors")
-	AddColorRow(combatColors, "Text Color",
-		function()
-			local c = SimpleBossModsDB.cfg.combatTimer.color
-			return c.r, c.g, c.b, c.a
-		end,
-		function(r, g, b, a) M:ApplyCombatTimerColor(r, g, b, a) end
-	)
-	AddColorRow(combatColors, "Border Color",
-		function()
-			local c = SimpleBossModsDB.cfg.combatTimer.borderColor
-			return c.r, c.g, c.b, c.a
-		end,
-		function(r, g, b, a) M:ApplyCombatTimerBorderColor(r, g, b, a) end
-	)
-	AddColorRow(combatColors, "Background Color",
-		function()
-			local c = SimpleBossModsDB.cfg.combatTimer.bgColor
-			return c.r, c.g, c.b, c.a
-		end,
-		function(r, g, b, a) M:ApplyCombatTimerBgColor(r, g, b, a) end
-	)
-
-	local privateAuraDirections = {
-		{ label = "Right", value = "RIGHT" },
-		{ label = "Left", value = "LEFT" },
-		{ label = "Up", value = "UP" },
-		{ label = "Down", value = "DOWN" },
-	}
-
-	local privateEnable = CreateSection(privateTab, "Private Auras")
-	AddCheckRow(privateEnable, "Enable Tracking",
-		function() return SimpleBossModsDB.cfg.privateAuras.enabled ~= false end,
-		function(v) M:ApplyPrivateAuraEnabled(v) end,
-		"Toggle private aura icon tracking."
-	)
-
-	local privateAnchor = CreateSection(privateTab, "Anchor")
-	local privateAnchorParentOptions = select(1, buildAnchorParentLists(SimpleBossModsDB.cfg.privateAuras.anchorParent))
-	AddDropdownRow(privateAnchor, "Anchor From",
-		ANCHOR_POINT_OPTIONS,
-		function() return SimpleBossModsDB.cfg.privateAuras.anchorFrom end,
-		function(v) M:ApplyPrivateAuraAnchorFrom(v) end
-	)
-	AddDropdownRow(privateAnchor, "Anchor To Parent",
-		privateAnchorParentOptions,
-		function() return SimpleBossModsDB.cfg.privateAuras.anchorParent end,
-		function(v)
-			M:ApplyPrivateAuraAnchorParent(v)
-			RefreshAll()
-		end
-	)
-	AddDropdownRow(privateAnchor, "Anchor To",
-		ANCHOR_POINT_OPTIONS,
-		function() return SimpleBossModsDB.cfg.privateAuras.anchorTo end,
-		function(v) M:ApplyPrivateAuraAnchorTo(v) end
-	)
-	AddTextRow(privateAnchor, "Custom Parent (optional)",
-		function() return SimpleBossModsDB.cfg.privateAuras.customParent or "" end,
-		function(v) M:ApplyPrivateAuraCustomParent(v) end,
-		"Overrides 'Anchor To Parent' when set. Use a global frame name, e.g. PlayerFrame."
-	)
-	AddNumberRow(privateAnchor, "X Offset",
-		function() return SimpleBossModsDB.cfg.privateAuras.x or 0 end,
-		function(v) M:ApplyPrivateAuraPosition(v, SimpleBossModsDB.cfg.privateAuras.y or 0) end,
-		nil, true
-	)
-	AddNumberRow(privateAnchor, "Y Offset",
-		function() return SimpleBossModsDB.cfg.privateAuras.y or 0 end,
-		function(v) M:ApplyPrivateAuraPosition(SimpleBossModsDB.cfg.privateAuras.x or 0, v) end,
-		nil, true
-	)
-
-	local privateLayout = CreateSection(privateTab, "Layout")
-	AddNumberRow(privateLayout, "Icon Size",
-		function() return SimpleBossModsDB.cfg.privateAuras.size end,
-		function(v)
-			M:ApplyPrivateAuraConfig(
-				v,
-				SimpleBossModsDB.cfg.privateAuras.gap,
-				SimpleBossModsDB.cfg.privateAuras.growDirection,
-				SimpleBossModsDB.cfg.privateAuras.x,
-				SimpleBossModsDB.cfg.privateAuras.y
-			)
-		end
-	)
-
-	AddNumberRow(privateLayout, "Icon Gap",
-		function() return SimpleBossModsDB.cfg.privateAuras.gap end,
-		function(v)
-			M:ApplyPrivateAuraConfig(
-				SimpleBossModsDB.cfg.privateAuras.size,
-				v,
-				SimpleBossModsDB.cfg.privateAuras.growDirection,
-				SimpleBossModsDB.cfg.privateAuras.x,
-				SimpleBossModsDB.cfg.privateAuras.y
-			)
-		end
-	)
-
-	AddDropdownRow(privateLayout, "Grow Direction",
-		privateAuraDirections,
-		function() return SimpleBossModsDB.cfg.privateAuras.growDirection end,
-		function(v)
-			M:ApplyPrivateAuraConfig(
-				SimpleBossModsDB.cfg.privateAuras.size,
-				SimpleBossModsDB.cfg.privateAuras.gap,
-				v,
-				SimpleBossModsDB.cfg.privateAuras.x,
-				SimpleBossModsDB.cfg.privateAuras.y
-			)
-		end,
-		"Icon growth direction from the private aura anchor."
-	)
-
-	for _, tab in ipairs(tabs) do
-		LayoutTab(tab)
-	end
-	SelectTab(1)
-
-	panel._refreshAll = RefreshAll
-	panel:SetScript("OnShow", function()
-		if M and M.EnsureDefaults then
-			M:EnsureDefaults()
-		end
-		RefreshAll()
-		M:LayoutAll()
-	end)
-
-	panel:SetScript("OnHide", function()
-		M:StopTest()
-		M:LayoutAll()
-	end)
-
-	self._settingsWindow = panel
-	return panel
-end
-
--- =========================
--- Settings Window (AceGUI)
--- =========================
 function M:CreateSettingsWindow()
-	if not AG then
-		return self:CreateLegacySettingsWindow()
-	end
 	if isGUIOpen then return self._settingsWindow end
 	if InCombatLockdown() then return end
 	if self.EnsureDefaults then
@@ -1938,6 +1230,23 @@ function M:CreateSettingsWindow()
 		return input
 	end
 
+	local function addTextInput(container, label, getValue, setValue, width)
+		local input = AG:Create("EditBox")
+		input:SetLabel(label)
+		input:SetText(tostring(getValue() or ""))
+		if width then
+			input:SetRelativeWidth(width)
+		else
+			input:SetFullWidth(true)
+		end
+		input:SetCallback("OnEnterPressed", function(widget, _, text)
+			setValue(text or "")
+			widget:SetText(tostring(getValue() or ""))
+		end)
+		container:AddChild(input)
+		return input
+	end
+
 	local function addCheckBox(container, label, getValue, setValue, width)
 		local cb = AG:Create("CheckBox")
 		cb:SetLabel(label)
@@ -1982,292 +1291,346 @@ function M:CreateSettingsWindow()
 		cp:SetHasAlpha(true)
 		local r, g, b, a = getValue()
 		cp:SetColor(r, g, b, a)
+		ensureColorPickerCloseHook()
 		if width then
 			cp:SetRelativeWidth(width)
 		else
 			cp:SetFullWidth(true)
 		end
+		local pendingR, pendingG, pendingB, pendingA
+		local hasPending = false
+		local function commitPendingColor()
+			if not hasPending then
+				return
+			end
+			hasPending = false
+			local cr, cg, cb, ca = pendingR, pendingG, pendingB, pendingA
+			pendingR, pendingG, pendingB, pendingA = nil, nil, nil, nil
+			setValue(cr, cg, cb, ca)
+			local sr, sg, sb, sa = getValue()
+			cp:SetColor(sr, sg, sb, sa)
+		end
 		cp:SetCallback("OnValueChanged", function(_, _, nr, ng, nb, na)
-			setValue(nr, ng, nb, na)
+			pendingR, pendingG, pendingB, pendingA = nr, ng, nb, na
+			hasPending = true
+			local pickerFrame = _G.ColorPickerFrame
+			if pickerFrame and pickerFrame:IsShown() then
+				M._sbmPendingColorCommit = commitPendingColor
+			else
+				if M._sbmPendingColorCommit == commitPendingColor then
+					M._sbmPendingColorCommit = nil
+				end
+				commitPendingColor()
+			end
+		end)
+		cp:SetCallback("OnValueConfirmed", function(_, _, nr, ng, nb, na)
+			pendingR, pendingG, pendingB, pendingA = nr, ng, nb, na
+			hasPending = true
+			if M._sbmPendingColorCommit == commitPendingColor then
+				M._sbmPendingColorCommit = nil
+			end
+			commitPendingColor()
 		end)
 		container:AddChild(cp)
 		return cp
 	end
 
-	local function buildConnectorsTab(container)
-		if addon.RefreshConnectorState then
-			addon:RefreshConnectorState()
-		end
+		local function buildGeneralTab(container)
+			local timeline = AG:Create("InlineGroup")
+			timeline:SetTitle("Timeline")
+			timeline:SetLayout("Flow")
+			timeline:SetFullWidth(true)
+			container:AddChild(timeline)
 
-		local controls = AG:Create("InlineGroup")
-		controls:SetTitle("Connector Source")
-		controls:SetLayout("Flow")
-		controls:SetFullWidth(true)
-		container:AddChild(controls)
-
-		local statuses = addon.GetConnectorStatuses and addon:GetConnectorStatuses() or {}
-		local list = {}
-		local byID = {}
-		local order = {}
-		local seen = {}
-		local preferredOrder = { "timeline", "bigwigs", "dbm" }
-		for _, info in ipairs(statuses) do
-			byID[info.id] = info
-		end
-		for _, id in ipairs(preferredOrder) do
-			local info = byID[id]
-			if info then
-				list[id] = info.label
-				order[#order + 1] = id
-				seen[id] = true
-			end
-		end
-		for _, info in ipairs(statuses) do
-			if not seen[info.id] then
-				list[info.id] = info.label
-				order[#order + 1] = info.id
-				seen[info.id] = true
-			end
-		end
-
-		local optionsGroup = AG:Create("InlineGroup")
-		optionsGroup:SetTitle("Connector Options")
-		optionsGroup:SetLayout("Flow")
-		optionsGroup:SetFullWidth(true)
-		container:AddChild(optionsGroup)
-
-		local infoGroup = AG:Create("InlineGroup")
-		infoGroup:SetTitle("Credits")
-		infoGroup:SetLayout("Flow")
-		infoGroup:SetFullWidth(true)
-		container:AddChild(infoGroup)
-
-		local function addInfoLine(text)
-			local line = AG:Create("Label")
-			line:SetText(text)
-			line:SetFullWidth(true)
-			infoGroup:AddChild(line)
-		end
-
-		local function setCreditsVisible(visible)
-			if infoGroup and infoGroup.frame then
-				infoGroup.frame:SetShown(visible and true or false)
-				if container and container.DoLayout then
-					container:DoLayout()
-				end
-			end
-		end
-
-		local function getSelectedConnectorID()
-			if addon.GetRequestedConnectorID then
-				return addon:GetRequestedConnectorID()
-			end
-			return (SimpleBossModsDB.cfg.connectors and SimpleBossModsDB.cfg.connectors.provider) or "timeline"
-		end
-
-		local function refreshCredits(selectedID)
-			infoGroup:ReleaseChildren()
-			selectedID = tostring(selectedID or "timeline"):lower()
-
-			if selectedID == "timeline" then
-				setCreditsVisible(false)
-				return
-			end
-
-			setCreditsVisible(true)
-			if selectedID == "bigwigs" then
-				addInfoLine("|cffffd200BigWigs Credits|r")
-				addInfoLine("Authors: The BigWigs Team and contributors.")
-				addInfoLine("GitHub: https://github.com/BigWigsMods/BigWigs")
-				addInfoLine("Requires BigWigs to be installed and loaded (and LittleWigs for dungeon coverage).")
-				addInfoLine("This connector depends on BigWigs data and would not work without their development work.")
-				addInfoLine("All rights belong to the BigWigs authors. Please support the official project.")
-			else
-				addInfoLine("|cffffd200DBM Credits|r")
-				addInfoLine("Authors: Deadly Boss Mods team, led by MysticalOS, and contributors.")
-				addInfoLine("GitHub: https://github.com/DeadlyBossMods/DeadlyBossMods")
-				addInfoLine("Requires Deadly Boss Mods (DBM) to be installed and loaded.")
-				addInfoLine("This connector depends on DBM data and would not work without their development work.")
-				addInfoLine("All rights belong to the DBM authors. Please support the official project.")
-			end
-		end
-
-		local function refreshConnectorOptions(selectedID)
-			optionsGroup:ReleaseChildren()
-			selectedID = tostring(selectedID or "timeline"):lower()
-
-			if selectedID == "timeline" then
-				addCheckBox(optionsGroup, "Use recommended settings",
-					function()
-						local connectors = SimpleBossModsDB.cfg.connectors
-						return not connectors or connectors.useRecommendedSettings ~= false
-					end,
-					function(value)
-						if addon.ApplyConnectorUseRecommendedSettings then
-							addon:ApplyConnectorUseRecommendedSettings(value)
-						end
-					end,
-					1
-				)
-
-				local note = AG:Create("Label")
-				note:SetText("Recommended: keeps the Blizzard timeline active, sets it to Bars, and hides the Blizzard frame so SBM gets better event data.")
-				note:SetFullWidth(true)
-				optionsGroup:AddChild(note)
-
-				local note2 = AG:Create("Label")
-				note2:SetText("Disable this if you prefer using your own timeline settings.")
-				note2:SetFullWidth(true)
-				optionsGroup:AddChild(note2)
-			elseif selectedID == "bigwigs" then
-				addCheckBox(optionsGroup, "Disable Blizzard timeline",
-					function()
-						local connectors = SimpleBossModsDB.cfg.connectors
-						return connectors and connectors.disableBlizzardTimeline == true
-					end,
-					function(value)
-						if addon.ApplyConnectorDisableBlizzardTimeline then
-							addon:ApplyConnectorDisableBlizzardTimeline(value)
-						end
-					end,
-					1
-				)
-
-				local timelineNote = AG:Create("Label")
-				timelineNote:SetText("Optional. Disables the Blizzard encounter timeline while using external connectors.")
-				timelineNote:SetFullWidth(true)
-				optionsGroup:AddChild(timelineNote)
-
-				addDropdown(optionsGroup, "BigWigs bar colors",
-					{
-						normal = "Normal",
-						emphasized = "Emphasized",
-					},
-					function()
-						local connectors = SimpleBossModsDB.cfg.connectors
-						local mode = connectors and connectors.bigWigsColorMode or "normal"
-						mode = (type(mode) == "string") and mode:lower() or "normal"
-						if mode ~= "emphasized" then
-							mode = "normal"
-						end
-						return mode
-					end,
-					function(value)
-						if addon.ApplyConnectorBigWigsColorMode then
-							addon:ApplyConnectorBigWigsColorMode(value)
-						end
-					end,
-					1
-				)
-
-				local colorsModeNote = AG:Create("Label")
-				colorsModeNote:SetText("Choose whether SBM uses BigWigs normal or emphasized bar colors (including per-ability overrides).")
-				colorsModeNote:SetFullWidth(true)
-				optionsGroup:AddChild(colorsModeNote)
-
-				addCheckBox(optionsGroup, "Hide BigWigs bars",
-					function()
-						local connectors = SimpleBossModsDB.cfg.connectors
-						return not connectors or connectors.hideBigWigsBars ~= false
-					end,
-					function(value)
-						if addon.ApplyConnectorHideBigWigsBars then
-							addon:ApplyConnectorHideBigWigsBars(value)
-						end
-					end,
-					1
-				)
-
-				local note = AG:Create("Label")
-				note:SetText("Enabled by default. Hides native BigWigs bars while SBM uses BigWigs as connector.")
-				note:SetFullWidth(true)
-				optionsGroup:AddChild(note)
-			elseif selectedID == "dbm" then
-				addCheckBox(optionsGroup, "Disable Blizzard timeline",
-					function()
-						local connectors = SimpleBossModsDB.cfg.connectors
-						return connectors and connectors.disableBlizzardTimeline == true
-					end,
-					function(value)
-						if addon.ApplyConnectorDisableBlizzardTimeline then
-							addon:ApplyConnectorDisableBlizzardTimeline(value)
-						end
-					end,
-					1
-				)
-
-				local timelineNote = AG:Create("Label")
-				timelineNote:SetText("Optional. Disables the Blizzard encounter timeline while using external connectors.")
-				timelineNote:SetFullWidth(true)
-				optionsGroup:AddChild(timelineNote)
-
-				addCheckBox(optionsGroup, "Use DBM colors",
-					function()
-						local connectors = SimpleBossModsDB.cfg.connectors
-						return not connectors or connectors.useDBMColors ~= false
-					end,
-					function(value)
-						if addon.ApplyConnectorUseDBMColors then
-							addon:ApplyConnectorUseDBMColors(value)
-						end
-					end,
-					1
-				)
-
-				local colorsNote = AG:Create("Label")
-				colorsNote:SetText("Enabled by default. Uses DBM default/type bar colors for all DBM abilities.")
-				colorsNote:SetFullWidth(true)
-				optionsGroup:AddChild(colorsNote)
-
-				addCheckBox(optionsGroup, "Hide DBM bars",
-					function()
-						local connectors = SimpleBossModsDB.cfg.connectors
-						return not connectors or connectors.hideDBMBars ~= false
-					end,
-					function(value)
-						if addon.ApplyConnectorHideDBMBars then
-							addon:ApplyConnectorHideDBMBars(value)
-						end
-					end,
-					1
-				)
-
-				local note = AG:Create("Label")
-				note:SetText("Enabled by default. Hides native DBM bars while SBM uses DBM as connector.")
-				note:SetFullWidth(true)
-				optionsGroup:AddChild(note)
-			end
-		end
-
-		local connectorDropdown = addDropdown(controls, "Active Connector",
-			list,
-			function()
-				return getSelectedConnectorID()
-			end,
-			function(value)
-				if addon.SetConnector then
-					local ok, reason = addon:SetConnector(value)
-					if not ok and type(reason) == "string" and reason ~= "" then
-						print("SimpleBossMods:", reason)
+			addCheckBox(timeline, "Use recommended timeline settings",
+				function() return SimpleBossModsDB.cfg.general.useRecommendedTimelineSettings ~= false end,
+				function(value)
+					if addon.ApplyGeneralTimelineRecommendedSettings then
+						addon:ApplyGeneralTimelineRecommendedSettings(value)
 					end
-				end
-				local selectedID = getSelectedConnectorID()
-				refreshCredits(selectedID)
-				refreshConnectorOptions(selectedID)
-			end,
-			1,
-			order
-		)
-		if connectorDropdown and connectorDropdown.SetItemDisabled then
-			for id, info in pairs(byID) do
-				connectorDropdown:SetItemDisabled(id, not info.available)
-			end
+				end,
+				1
+			)
+
+			local note = AG:Create("Label")
+			note:SetText("Recommended: keeps the Blizzard timeline active, sets it to Bars, and hides the Blizzard timeline frame so SBM receives better event data.")
+			note:SetFullWidth(true)
+			timeline:AddChild(note)
+
+			local note2 = AG:Create("Label")
+			note2:SetText("Disable this if you want Blizzard timeline behavior unchanged.")
+			note2:SetFullWidth(true)
+			timeline:AddChild(note2)
 		end
 
-		local selectedID = getSelectedConnectorID()
-		refreshCredits(selectedID)
-		refreshConnectorOptions(selectedID)
-	end
+		local function buildColorsTab(container)
+			local function rebuildColorsTab()
+				container:ReleaseChildren()
+				buildColorsTab(container)
+				container:DoLayout()
+				if container.FixScroll then
+					container:FixScroll()
+				end
+			end
+
+			local defaults = AG:Create("InlineGroup")
+			defaults:SetTitle("Default Colors")
+			defaults:SetLayout("Flow")
+			defaults:SetFullWidth(true)
+			container:AddChild(defaults)
+
+			addColorPicker(defaults, "Bar Color",
+				function() return L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A end,
+				function(r, g, b, a) addon:ApplyBarColor(r, g, b, a) end,
+				0.33
+			)
+
+			addColorPicker(defaults, "Background Color",
+				function() return L.BAR_BG_R, L.BAR_BG_G, L.BAR_BG_B, L.BAR_BG_A end,
+				function(r, g, b, a) addon:ApplyBarBgColor(r, g, b, a) end,
+				0.33
+			)
+
+			addCheckBox(defaults, "Use icon border colors",
+				function() return SimpleBossModsDB.cfg.general.useIconBorderColors and true or false end,
+				function(v) M:ApplyUseIconBorderColors(v) end,
+				0.33
+			)
+
+			local presets = AG:Create("InlineGroup")
+			presets:SetTitle("Presets")
+			presets:SetLayout("Flow")
+			presets:SetFullWidth(true)
+			container:AddChild(presets)
+
+			local indicatorsPreset = AG:Create("Button")
+			indicatorsPreset:SetText("Indicators")
+			indicatorsPreset:SetRelativeWidth(0.5)
+			indicatorsPreset:SetCallback("OnClick", function()
+				M:ApplyPriorityPresetIndicators()
+				rebuildColorsTab()
+			end)
+			presets:AddChild(indicatorsPreset)
+
+			local severityPreset = AG:Create("Button")
+			severityPreset:SetText("Severity")
+			severityPreset:SetRelativeWidth(0.5)
+			severityPreset:SetCallback("OnClick", function()
+				M:ApplyPriorityPresetSeverity()
+				rebuildColorsTab()
+			end)
+			presets:AddChild(severityPreset)
+
+			local priorityGroup = AG:Create("InlineGroup")
+			priorityGroup:SetTitle("Priority")
+			priorityGroup:SetLayout("Flow")
+			priorityGroup:SetFullWidth(true)
+			container:AddChild(priorityGroup)
+
+			local priorityLabel = AG:Create("Label")
+			priorityLabel:SetText("If multiple criteria are met, this list decides which color is shown.")
+			priorityLabel:SetFullWidth(true)
+			priorityGroup:AddChild(priorityLabel)
+
+			local groupOrder = SimpleBossModsDB.cfg.general.indicatorPriorityGroups
+			if type(M.NormalizeIndicatorPriorityGroups) == "function" then
+				groupOrder = M.NormalizeIndicatorPriorityGroups(groupOrder)
+			end
+			SimpleBossModsDB.cfg.general.indicatorPriorityGroups = groupOrder
+
+			for idx, key in ipairs(groupOrder) do
+				local row = AG:Create("SimpleGroup")
+				row:SetLayout("Flow")
+				row:SetFullWidth(true)
+				priorityGroup:AddChild(row)
+
+				local name = AG:Create("Label")
+				name:SetText(string.format("%d. %s", idx, INDICATOR_PRIORITY_GROUP_LABELS[key] or key))
+				name:SetRelativeWidth(0.32)
+				row:AddChild(name)
+
+				if key == "playerRole" then
+					addCheckBox(row, "Use colors",
+						function() return SimpleBossModsDB.cfg.general.usePlayerRoleColor ~= false end,
+						function(v) M:ApplyUsePlayerRoleColor(v) end,
+						0.28
+					)
+				elseif key == "dispels" then
+					addCheckBox(row, "Use colors",
+						function() return SimpleBossModsDB.cfg.general.useDispelColors ~= false end,
+						function(v) M:ApplyUseDispelColors(v) end,
+						0.28
+					)
+				elseif key == "roles" then
+					addCheckBox(row, "Use colors",
+						function() return SimpleBossModsDB.cfg.general.useRoleColors ~= false end,
+						function(v) M:ApplyUseRoleColors(v) end,
+						0.28
+					)
+				elseif key == "other" then
+					addCheckBox(row, "Use colors",
+						function() return SimpleBossModsDB.cfg.general.useOtherColors ~= false end,
+						function(v) M:ApplyUseOtherColors(v) end,
+						0.28
+					)
+				elseif key == "severity" then
+					addCheckBox(row, "Use colors",
+						function() return SimpleBossModsDB.cfg.general.useSeverityColors ~= false end,
+						function(v) M:ApplyUseSeverityColors(v) end,
+						0.28
+					)
+				end
+
+				local upButton = AG:Create("Button")
+				upButton:SetText("Up")
+				upButton:SetRelativeWidth(0.20)
+				upButton:SetDisabled(idx == 1)
+				upButton:SetCallback("OnClick", function()
+					local newOrder = {}
+					for i, groupKey in ipairs(groupOrder) do
+						newOrder[i] = groupKey
+					end
+					newOrder[idx], newOrder[idx - 1] = newOrder[idx - 1], newOrder[idx]
+					M:ApplyIndicatorPriorityGroups(newOrder)
+					rebuildColorsTab()
+				end)
+				row:AddChild(upButton)
+
+				local downButton = AG:Create("Button")
+				downButton:SetText("Down")
+				downButton:SetRelativeWidth(0.20)
+				downButton:SetDisabled(idx == #groupOrder)
+				downButton:SetCallback("OnClick", function()
+					local newOrder = {}
+					for i, groupKey in ipairs(groupOrder) do
+						newOrder[i] = groupKey
+					end
+					newOrder[idx], newOrder[idx + 1] = newOrder[idx + 1], newOrder[idx]
+					M:ApplyIndicatorPriorityGroups(newOrder)
+					rebuildColorsTab()
+				end)
+				row:AddChild(downButton)
+			end
+
+			local indicators = AG:Create("InlineGroup")
+			indicators:SetTitle("Indicators")
+			indicators:SetLayout("Flow")
+			indicators:SetFullWidth(true)
+			container:AddChild(indicators)
+
+			local dispelsGroup = AG:Create("InlineGroup")
+			dispelsGroup:SetTitle("Dispels")
+			dispelsGroup:SetLayout("Flow")
+			dispelsGroup:SetFullWidth(true)
+			indicators:AddChild(dispelsGroup)
+
+			local dispels = { "magic", "disease", "curse", "poison", "bleed" }
+			for _, key in ipairs(dispels) do
+				local label = INDICATOR_COLOR_LABELS[key] or key:gsub("^%l", string.upper)
+				addColorPicker(dispelsGroup, label,
+					function()
+						local colors = SimpleBossModsDB.cfg.general.indicatorColors or M.Defaults.cfg.general.indicatorColors
+						local c = colors[key] or M.Defaults.cfg.general.indicatorColors[key]
+						return c.r, c.g, c.b, c.a
+					end,
+					function(r, g, b, a)
+						if addon.ApplyGeneralIndicatorColor then
+							addon:ApplyGeneralIndicatorColor(key, r, g, b, a)
+						end
+					end,
+					0.33
+				)
+			end
+
+			local rolesGroup = AG:Create("InlineGroup")
+			rolesGroup:SetTitle("Roles")
+			rolesGroup:SetLayout("Flow")
+			rolesGroup:SetFullWidth(true)
+			indicators:AddChild(rolesGroup)
+
+			local roles = { "tank", "healer", "dps" }
+			for _, key in ipairs(roles) do
+				local label = INDICATOR_COLOR_LABELS[key] or key:gsub("^%l", string.upper)
+				addColorPicker(rolesGroup, label,
+					function()
+						local colors = SimpleBossModsDB.cfg.general.indicatorColors or M.Defaults.cfg.general.indicatorColors
+						local c = colors[key] or M.Defaults.cfg.general.indicatorColors[key]
+						return c.r, c.g, c.b, c.a
+					end,
+					function(r, g, b, a)
+						if addon.ApplyGeneralIndicatorColor then
+							addon:ApplyGeneralIndicatorColor(key, r, g, b, a)
+						end
+					end,
+					0.33
+				)
+			end
+
+			local otherGroup = AG:Create("InlineGroup")
+			otherGroup:SetTitle("Other")
+			otherGroup:SetLayout("Flow")
+			otherGroup:SetFullWidth(true)
+			indicators:AddChild(otherGroup)
+
+			local other = { "deadly", "enrage" }
+			for _, key in ipairs(other) do
+				local label = INDICATOR_COLOR_LABELS[key] or key:gsub("^%l", string.upper)
+				addColorPicker(otherGroup, label,
+					function()
+						local colors = SimpleBossModsDB.cfg.general.indicatorColors or M.Defaults.cfg.general.indicatorColors
+						local c = colors[key] or M.Defaults.cfg.general.indicatorColors[key]
+						return c.r, c.g, c.b, c.a
+					end,
+					function(r, g, b, a)
+						if addon.ApplyGeneralIndicatorColor then
+							addon:ApplyGeneralIndicatorColor(key, r, g, b, a)
+						end
+					end,
+					0.33
+				)
+			end
+
+			local playerRoleGroup = AG:Create("InlineGroup")
+			playerRoleGroup:SetTitle("Player Role")
+			playerRoleGroup:SetLayout("Flow")
+			playerRoleGroup:SetFullWidth(true)
+			indicators:AddChild(playerRoleGroup)
+
+			addColorPicker(playerRoleGroup, "Player Role Color",
+				function()
+					local c = SimpleBossModsDB.cfg.general.customPlayerRoleColor or M.Defaults.cfg.general.customPlayerRoleColor
+					return c.r, c.g, c.b, c.a
+				end,
+				function(r, g, b, a)
+					M:ApplyCustomPlayerRoleColor(r, g, b, a)
+				end,
+				0.33
+			)
+
+			local severityGroup = AG:Create("InlineGroup")
+			severityGroup:SetTitle("Severity")
+			severityGroup:SetLayout("Flow")
+			severityGroup:SetFullWidth(true)
+			container:AddChild(severityGroup)
+
+			local severities = { "severitylow", "severitymedium", "severityhigh" }
+			for _, key in ipairs(severities) do
+				local label = INDICATOR_COLOR_LABELS[key] or key
+				addColorPicker(severityGroup, label,
+					function()
+						local colors = SimpleBossModsDB.cfg.general.indicatorColors or M.Defaults.cfg.general.indicatorColors
+						local c = colors[key] or M.Defaults.cfg.general.indicatorColors[key]
+						return c.r, c.g, c.b, c.a
+					end,
+					function(r, g, b, a)
+						if addon.ApplyGeneralIndicatorColor then
+							addon:ApplyGeneralIndicatorColor(key, r, g, b, a)
+						end
+					end,
+					0.33
+				)
+			end
+		end
 
 	local function buildDungeonTab(container)
 		local mythic = AG:Create("InlineGroup")
@@ -2603,29 +1966,6 @@ function M:CreateSettingsWindow()
 			0.5
 		)
 
-		local defaults = AG:Create("InlineGroup")
-		defaults:SetTitle("Default Colors (Timeline)")
-		defaults:SetLayout("Flow")
-		defaults:SetFullWidth(true)
-		container:AddChild(defaults)
-
-		addColorPicker(defaults, "Default Bar Color",
-			function() return L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A end,
-			function(r, g, b, a) addon:ApplyBarColor(r, g, b, a) end,
-			0.5
-		)
-
-		addColorPicker(defaults, "Default Background Color",
-			function() return L.BAR_BG_R, L.BAR_BG_G, L.BAR_BG_B, L.BAR_BG_A end,
-			function(r, g, b, a) addon:ApplyBarBgColor(r, g, b, a) end,
-			0.5
-		)
-
-		local defaultsNote = AG:Create("Label")
-		defaultsNote:SetText("Timeline uses these defaults. BigWigs/DBM colors are sourced from their connectors.")
-		defaultsNote:SetFullWidth(true)
-		defaults:AddChild(defaultsNote)
-
 		local media = AG:Create("InlineGroup")
 		media:SetTitle("Fonts & Textures")
 		media:SetLayout("Flow")
@@ -2946,34 +2286,36 @@ function M:CreateSettingsWindow()
 		)
 	end
 
-	local status = { selected = "Connectors" }
+	local status = { selected = "General" }
 	addon._settingsTabStatus = status
 
 	local tabs = AG:Create("TabGroup")
 	tabs:SetLayout("Flow")
-	tabs:SetFullWidth(true)
-	tabs:SetFullHeight(true)
-	tabs:SetTabs({
-		{ text = "Connectors", value = "Connectors" },
-		{ text = "Large Icons", value = "Icons" },
-		{ text = "Bars", value = "Bars" },
-		{ text = "Dungeon", value = "Dungeon" },
-		{ text = "Combat Timer", value = "Combat" },
+		tabs:SetFullWidth(true)
+		tabs:SetFullHeight(true)
+		tabs:SetTabs({
+			{ text = "General", value = "General" },
+			{ text = "Colors", value = "Colors" },
+			{ text = "Large Icons", value = "Icons" },
+			{ text = "Bars", value = "Bars" },
+			{ text = "Dungeon", value = "Dungeon" },
+			{ text = "Combat Timer", value = "Combat" },
 		{ text = "Private Auras", value = "Private" },
 	})
 	tabs:SetStatusTable(status)
-	local validTabs = {
-		Connectors = true,
-		Icons = true,
-		Bars = true,
-		Dungeon = true,
-		Combat = true,
+		local validTabs = {
+			General = true,
+			Colors = true,
+			Icons = true,
+			Bars = true,
+			Dungeon = true,
+			Combat = true,
 		Private = true,
 	}
 	if status.selected == "Media" then
 		status.selected = "Bars"
 	elseif not validTabs[status.selected] then
-		status.selected = "Connectors"
+		status.selected = "General"
 	end
 	tabs:SetCallback("OnGroupSelected", function(container, _, group)
 		container:ReleaseChildren()
@@ -2983,18 +2325,20 @@ function M:CreateSettingsWindow()
 		scroll:SetFullHeight(true)
 		container:AddChild(scroll)
 
-		if group == "Connectors" then
-			buildConnectorsTab(scroll)
+		if group == "General" then
+			buildGeneralTab(scroll)
+		elseif group == "Colors" then
+			buildColorsTab(scroll)
 		elseif group == "Icons" then
 			buildIconsTab(scroll)
-		elseif group == "Bars" then
-			buildBarsTab(scroll)
-		elseif group == "Dungeon" then
-			buildDungeonTab(scroll)
-		elseif group == "Combat" then
-			buildCombatTimerTab(scroll)
-		elseif group == "Private" then
-			buildPrivateTab(scroll)
+	elseif group == "Bars" then
+		buildBarsTab(scroll)
+	elseif group == "Dungeon" then
+		buildDungeonTab(scroll)
+	elseif group == "Combat" then
+		buildCombatTimerTab(scroll)
+	elseif group == "Private" then
+		buildPrivateTab(scroll)
 		end
 		scroll:DoLayout()
 		if scroll.FixScroll then

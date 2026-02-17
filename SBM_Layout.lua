@@ -16,8 +16,8 @@ end
 
 local layoutIconList = {}
 local layoutBarList = {}
-local smoothBars = nil
-local smoothFrame = nil
+local Enum_EncounterTimelineEventSource = Enum and Enum.EncounterTimelineEventSource
+local EDIT_MODE_SOURCE_ID = (Enum_EncounterTimelineEventSource and Enum_EncounterTimelineEventSource.EditMode) or 2
 
 local function isSecretValue(value)
 	return type(issecretvalue) == "function" and issecretvalue(value)
@@ -51,10 +51,65 @@ local function unpackColor(color)
 	return U.clamp(r, 0, 1), U.clamp(g, 0, 1), U.clamp(b, 0, 1), U.clamp(a, 0, 1), false
 end
 
-local function getConnectorBarColor(rec)
+local function getIndicatorBarColor(rec)
 	if type(rec) ~= "table" then return nil end
 	local eventInfo = rec.eventInfo
 	if type(eventInfo) ~= "table" then return nil end
+
+	local rawMask = eventInfo.icons
+	if rawMask == nil then
+		rawMask = rec._indicatorMask
+	end
+	if isSecretValue(rawMask) then
+		rawMask = nil
+	end
+
+	local mask = tonumber(rawMask)
+	if type(mask) ~= "number" or mask <= 0 then
+		mask = nil
+	end
+
+	local rawSeverity = eventInfo.severity
+	if isSecretValue(rawSeverity) then
+		rawSeverity = nil
+	end
+
+	if type(M.ResolveIndicatorColorForEvent) == "function" then
+		return M.ResolveIndicatorColorForEvent(mask, rawSeverity)
+	end
+	if type(M.ResolveIndicatorColorForMask) == "function" and mask then
+		return M.ResolveIndicatorColorForMask(mask)
+	end
+	return nil
+end
+
+local function isEditModeTimelineRec(rec)
+	if type(rec) ~= "table" then return false end
+	local eventInfo = rec.eventInfo
+	if type(eventInfo) ~= "table" then return false end
+	local source = eventInfo.source
+	if isSecretValue(source) then return false end
+	if source == EDIT_MODE_SOURCE_ID then
+		return true
+	end
+	return tonumber(source) == EDIT_MODE_SOURCE_ID
+end
+
+local function getTimelineBarColor(rec)
+	if type(rec) ~= "table" then return nil end
+	local eventInfo = rec.eventInfo
+	if type(eventInfo) ~= "table" then return nil end
+
+	local indicatorR, indicatorG, indicatorB, indicatorA = getIndicatorBarColor(rec)
+	if indicatorR then
+		return indicatorR, indicatorG, indicatorB, indicatorA
+	end
+
+	-- Native Edit Mode test events are not encounter events, so SetEventColor
+	-- does not reliably drive their colors. Resolve them locally.
+	if isEditModeTimelineRec(rec) then
+		return L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A
+	end
 
 	local colorR, colorG, colorB, colorA, colorSecret = unpackColor(eventInfo.color or eventInfo.barColor)
 	local fromR, fromG, fromB, fromA, fromSecret = unpackColor(eventInfo.colorFrom)
@@ -72,7 +127,7 @@ local function getConnectorBarColor(rec)
 		if isSecretValue(rem) then
 			rem = nil
 		end
-		local window = tonumber(rec._connectorColorStartRemaining)
+		local window = tonumber(rec._timelineColorStartRemaining)
 		if isSecretValue(window) then
 			window = nil
 		end
@@ -86,15 +141,19 @@ local function getConnectorBarColor(rec)
 			local progress = (window - shown) / window
 			if progress < 0 then progress = 0 end
 			if progress > 1 then progress = 1 end
-			return (
+			local r = (
 				fromR + (toR - fromR) * progress
-			), (
+			)
+			local g = (
 				fromG + (toG - fromG) * progress
-			), (
+			)
+			local b = (
 				fromB + (toB - fromB) * progress
-			), (
+			)
+			local a = (
 				fromA + (toA - fromA) * progress
 			)
+			return r, g, b, a
 		end
 	end
 
@@ -113,80 +172,46 @@ local function getConnectorBarColor(rec)
 	return nil
 end
 
+local function colorNear(a, b, tolerance)
+	if type(a) ~= "number" or type(b) ~= "number" then
+		return false
+	end
+	return math.abs(a - b) <= (tolerance or 0.01)
+end
+
+local function isDefaultBarColor(r, g, b, a)
+	local defaultA = L.BAR_FG_A or 1
+	return colorNear(r, L.BAR_FG_R, 0.01)
+		and colorNear(g, L.BAR_FG_G, 0.01)
+		and colorNear(b, L.BAR_FG_B, 0.01)
+		and colorNear(a or 1, defaultA, 0.01)
+end
+
+local function getIconBorderColor(rec)
+	if not L.USE_ICON_BORDER_COLORS then
+		return nil
+	end
+	if rec and rec.isManual then
+		return nil
+	end
+	local r, g, b, a = getTimelineBarColor(rec)
+	if not r then
+		return nil
+	end
+	if isDefaultBarColor(r, g, b, a or 1) then
+		return nil
+	end
+	return r, g, b, a or 1
+end
+
 local QUEUED_LABEL = "Queued"
 local PAUSED_LABEL = "Paused"
 local BLOCKED_LABEL = "Blocked"
 local BLOCKED_ICON_VERTEX = 0.55
 local BLOCKED_BORDER_COLOR = 0.50
 
-local function smoothOnUpdate()
-	if not smoothBars then
-		if smoothFrame then
-			smoothFrame:SetScript("OnUpdate", nil)
-		end
-		return
-	end
-	local now = (GetTime and GetTime()) or 0
-	local any = false
-	for bar, anim in pairs(smoothBars) do
-		local sb = bar and bar.sb
-		if not sb then
-			smoothBars[bar] = nil
-		else
-			local dur = anim.duration or 0
-			if dur <= 0 then
-				sb:SetValue(anim.target)
-				smoothBars[bar] = nil
-			else
-				local t = (now - (anim.start or now)) / dur
-				if t >= 1 then
-					sb:SetValue(anim.target)
-					smoothBars[bar] = nil
-				else
-					sb:SetValue(anim.from + (anim.target - anim.from) * t)
-					any = true
-				end
-			end
-		end
-	end
-	if not any then
-		if smoothFrame then
-			smoothFrame:SetScript("OnUpdate", nil)
-		end
-	end
-end
-
-local function ensureSmoothFrame()
-	if smoothFrame then return end
-	smoothFrame = CreateFrame("Frame")
-	smoothFrame:SetScript("OnUpdate", smoothOnUpdate)
-end
-
-local function setBarValueAnimated(bar, target, duration)
-	if not (bar and bar.sb) then return end
-	if not (duration and duration > 0) then
-		if smoothBars then
-			smoothBars[bar] = nil
-		end
-		bar.sb:SetValue(target)
-		return
-	end
-	ensureSmoothFrame()
-	smoothBars = smoothBars or {}
-	local from = bar.sb:GetValue() or target
-	if from == target then
-		smoothBars[bar] = nil
-		bar.sb:SetValue(target)
-		return
-	end
-	smoothBars[bar] = { from = from, target = target, start = (GetTime and GetTime()) or 0, duration = duration }
-	smoothFrame:SetScript("OnUpdate", smoothOnUpdate)
-end
-
-function M:ClearBarAnimation(bar)
-	if smoothBars and bar then
-		smoothBars[bar] = nil
-	end
+function M:ClearBarAnimation(_bar)
+	-- No-op: bar values are now driven directly from time-based remaining values.
 end
 
 -- =========================
@@ -194,16 +219,6 @@ end
 -- =========================
 local function sortByRemaining(a, b)
 	return (a.remaining or 999999) < (b.remaining or 999999)
-end
-
-local function isTestRec(rec)
-	if not rec then return false end
-	if rec.isTest then return true end
-	if not (M._testTicker or M._testTimelineEventIDSet) then return false end
-	if type(rec.eventInfo) ~= "table" then return false end
-	local label = U.safeGetLabel(rec.eventInfo)
-	if isSecretValue(label) then return false end
-	return type(label) == "string" and label:find("^Test ") ~= nil
 end
 
 function M:layoutIcons()
@@ -266,9 +281,7 @@ function M:layoutIcons()
 
 		f:ClearAllPoints()
 		f:SetPoint(point, frames.iconsParent, point, x, y)
-		if isTestRec(rec) and M.ApplyTestIndicators then
-			M:ApplyTestIndicators(f, true)
-		elseif f.indicatorsFrame and f.indicatorsFrame.__indicatorTextures then
+		if f.indicatorsFrame and f.indicatorsFrame.__indicatorTextures then
 			M.layoutIconIndicators(f, f.indicatorsFrame.__indicatorTextures)
 		end
 		end
@@ -315,20 +328,18 @@ function M:layoutBars()
 		M.applyBarFont(f.txt)
 		M.applyBarFont(f.rt)
 
-			if rec.isManual then
-				-- no secure timeline indicators for manual timers
-			elseif isTestRec(rec) and M.ApplyTestIndicators then
-				M:ApplyTestIndicators(f, false)
-			else
-				local indicatorEventID = rec._indicatorEventID
-				if type(indicatorEventID) ~= "number" and type(indicatorEventID) ~= "string" then
-					local recIDType = type(rec.id)
-					if recIDType == "number" or recIDType == "string" then
-						indicatorEventID = rec.id
-					end
+		if rec.isManual then
+			-- no secure timeline indicators for manual timers
+		else
+			local indicatorEventID = rec._indicatorEventID
+			if type(indicatorEventID) ~= "number" and type(indicatorEventID) ~= "string" then
+				local recIDType = type(rec.id)
+				if recIDType == "number" or recIDType == "string" then
+					indicatorEventID = rec.id
 				end
-				M.applyIndicatorsToBarEnd(f, indicatorEventID)
 			end
+			M.applyIndicatorsToBarEnd(f, indicatorEventID)
+		end
 		if f.endIndicatorsFrame then
 			local w = f.endIndicatorsFrame:GetWidth() or 0
 			if w > 1 then
@@ -382,17 +393,9 @@ function M:clearAll()
 	self:LayoutAll()
 end
 
-function M:ClearConnectorRecords()
-	for id, rec in pairs(self.events) do
-		if not (rec and rec.isManual) then
-			self:removeEvent(id)
-		end
-	end
-	self:LayoutAll()
-end
-
 local function updateRecTiming(rec, remaining)
 	local now = GetTime()
+	if isSecretValue(remaining) then return end
 	if type(remaining) ~= "number" then return end
 
 	if not rec.duration then
@@ -409,6 +412,183 @@ local function updateRecTiming(rec, remaining)
 end
 
 M._updateRecTiming = updateRecTiming
+
+local function getLiveRemaining(rec, now)
+	if type(rec) ~= "table" then return nil end
+	if type(now) ~= "number" then
+		now = (GetTime and GetTime()) or 0
+	end
+
+	if rec.isManual and type(rec.endTime) == "number" then
+		if isSecretValue(rec.endTime) then
+			return nil
+		end
+		return rec.endTime - now
+	end
+
+	local rem = rec.remaining
+	if isSecretValue(rem) then
+		return nil
+	end
+	if type(rem) ~= "number" then
+		return nil
+	end
+
+	if rec.isQueued or rec.isPaused or rec.isBlocked then
+		return rem
+	end
+
+	local duration = rec.duration
+	local startTime = rec.startTime
+	if isSecretValue(duration) or isSecretValue(startTime) then
+		return nil
+	end
+	if type(duration) == "number" and duration > 0 and type(startTime) == "number" then
+		return duration - (now - startTime)
+	end
+
+	return rem
+end
+
+local function updateBarCountdownVisual(rec, now)
+	local bar = rec and rec.barFrame
+	if not bar then
+		return false
+	end
+
+	local rem = getLiveRemaining(rec, now)
+	local isQueued = rec.isQueued and not rec.isManual
+	local isPaused = rec.isPaused and not rec.isManual
+	local isBlocked = rec.isBlocked and not rec.isManual
+
+	if isQueued then
+		bar.sb:SetMinMaxValues(0, L.THRESHOLD_TO_BAR)
+		bar.sb:SetValue(0)
+		if bar.rt._sbmStatus ~= QUEUED_LABEL then
+			bar.rt:SetText(QUEUED_LABEL)
+			bar.rt._sbmStatus = QUEUED_LABEL
+		end
+		return false
+	end
+
+	if rec.isManual then
+		local dur = rec.duration
+		if type(dur) == "number" and dur > 0 then
+			bar.sb:SetMinMaxValues(0, dur)
+			bar.sb:SetValue(U.clamp(rem or dur, 0, dur))
+		else
+			bar.sb:SetMinMaxValues(0, L.THRESHOLD_TO_BAR)
+			bar.sb:SetValue(U.clamp(rem or 0, 0, L.THRESHOLD_TO_BAR))
+		end
+		if rem ~= nil then
+			bar.rt:SetText(U.formatTimeBar(rem))
+		else
+			bar.rt:SetText("")
+		end
+	else
+		local shown = U.clamp(rem or L.THRESHOLD_TO_BAR, 0, L.THRESHOLD_TO_BAR)
+		bar.sb:SetMinMaxValues(0, L.THRESHOLD_TO_BAR)
+		bar.sb:SetValue(shown)
+		local prefix = rec.isApproximate and "~" or ""
+		bar.rt:SetText(prefix .. U.formatTimeBar(shown))
+	end
+
+	if isPaused or isBlocked then
+		local status = isPaused and PAUSED_LABEL or BLOCKED_LABEL
+		if bar.rt._sbmStatus ~= status then
+			bar.rt:SetText(status)
+			bar.rt._sbmStatus = status
+		end
+		return false
+	end
+
+	if bar.rt._sbmStatus then
+		bar.rt._sbmStatus = nil
+	end
+
+	return rem ~= nil
+end
+
+local function barCountdownOnUpdate(bar)
+	if not bar then return end
+	local id = bar.__id
+	if not id or not M.events then
+		bar:SetScript("OnUpdate", nil)
+		return
+	end
+
+	local rec = M.events[id]
+	if not rec or rec.barFrame ~= bar then
+		bar:SetScript("OnUpdate", nil)
+		return
+	end
+
+	local now = (GetTime and GetTime()) or 0
+	local keepUpdating = updateBarCountdownVisual(rec, now)
+	if not keepUpdating then
+		bar:SetScript("OnUpdate", nil)
+	end
+end
+
+local function updateIconCountdownVisual(rec, now)
+	local f = rec and rec.iconFrame
+	if not f then
+		return false
+	end
+
+	local rem = getLiveRemaining(rec, now)
+	local isQueued = rec.isQueued and not rec.isManual
+	local isPaused = rec.isPaused and not rec.isManual
+	local isBlocked = rec.isBlocked and not rec.isManual
+
+	if isQueued then
+		if f.timeText._sbmStatus ~= QUEUED_LABEL then
+			f.timeText:SetText(QUEUED_LABEL)
+			f.timeText._sbmStatus = QUEUED_LABEL
+		end
+		f.cd:Clear()
+		return false
+	end
+
+	if f.timeText._sbmStatus then
+		f.timeText._sbmStatus = nil
+	end
+
+	if type(rem) == "number" and rem > 0 then
+		f.timeText:SetText(U.formatTimeIcon(rem))
+		if rec.startTime and rec.duration and rec.duration > 0 and not isPaused and not isBlocked then
+			f.cd:SetCooldown(rec.startTime, rec.duration)
+		else
+			f.cd:Clear()
+		end
+	else
+		f.timeText:SetText("")
+		f.cd:Clear()
+	end
+
+	return rem ~= nil and not isPaused and not isBlocked
+end
+
+local function iconCountdownOnUpdate(icon)
+	if not icon then return end
+	local id = icon.__id
+	if not id or not M.events then
+		icon:SetScript("OnUpdate", nil)
+		return
+	end
+
+	local rec = M.events[id]
+	if not rec or rec.iconFrame ~= icon then
+		icon:SetScript("OnUpdate", nil)
+		return
+	end
+
+	local now = (GetTime and GetTime()) or 0
+	local keepUpdating = updateIconCountdownVisual(rec, now)
+	if not keepUpdating then
+		icon:SetScript("OnUpdate", nil)
+	end
+end
 
 local function refreshIconTexture(rec)
 	local f = rec.iconFrame
@@ -450,6 +630,7 @@ local function refreshBarLabelAndIcon(rec)
 	if isSecretValue(rec._barLabel) then
 		rec._barLabel = nil
 	end
+
 	if isSecretValue(label) then
 		bar.txt:SetText(label)
 		rec._barLabel = nil
@@ -560,16 +741,15 @@ function M:updateRecord(eventID, eventInfo, remaining)
 		rec.isApproximate = false
 	end
 
-	local isTest = isTestRec(rec)
-	if rec.isManual or isTest then
+	if rec.isManual then
 		rec.isQueued = false
 		rec.isPaused = false
 		rec.isBlocked = false
 	end
 
 	local indicatorEventID = nil
-	if not rec.isManual and not isTest and type(rec.eventInfo) == "table" then
-		local rawIndicatorEventID = rec.eventInfo.timelineEventID or rec.eventInfo.eventID or rec.eventInfo.id
+	if not rec.isManual and type(rec.eventInfo) == "table" then
+		local rawIndicatorEventID = rec.eventInfo.encounterEventID or rec.eventInfo.timelineEventID or rec.eventInfo.eventID or rec.eventInfo.id
 		local rawType = type(rawIndicatorEventID)
 		if isSecretValue(rawIndicatorEventID) or rawType == "number" or rawType == "string" then
 			indicatorEventID = rawIndicatorEventID
@@ -583,7 +763,7 @@ function M:updateRecord(eventID, eventInfo, remaining)
 		rec._indicatorDirty = true
 	end
 
-	if not rec.isManual and not isTest and rec.eventInfo and type(rec.eventInfo.icons) == "number" then
+	if not rec.isManual and rec.eventInfo and type(rec.eventInfo.icons) == "number" then
 		if isSecretValue(rec._indicatorMask) then
 			rec._indicatorMask = nil
 		end
@@ -600,6 +780,12 @@ function M:updateRecord(eventID, eventInfo, remaining)
 				rec._indicatorMask = rec.eventInfo.icons
 				rec._indicatorDirty = true
 			end
+		end
+	else
+		if rec._indicatorMask or rec._indicatorMaskSecret then
+			rec._indicatorMask = nil
+			rec._indicatorMaskSecret = nil
+			rec._indicatorDirty = true
 		end
 	end
 
@@ -633,7 +819,7 @@ function M:updateRecord(eventID, eventInfo, remaining)
 			remainingNum = nil
 		end
 
-		local startRemaining = rec._connectorColorStartRemaining
+		local startRemaining = rec._timelineColorStartRemaining
 		if isSecretValue(startRemaining) then
 			startRemaining = nil
 		end
@@ -656,18 +842,19 @@ function M:updateRecord(eventID, eventInfo, remaining)
 			startRemaining = threshold
 		end
 
-		rec._connectorColorStartRemaining = startRemaining
+		rec._timelineColorStartRemaining = startRemaining
 	else
-		rec._connectorColorStartRemaining = nil
+		rec._timelineColorStartRemaining = nil
 	end
 	if isNew or hadBar ~= (rec.barFrame ~= nil) or hadIcon ~= (rec.iconFrame ~= nil) then
 		self._layoutDirty = true
 	end
 
+	local nowForVisual = (GetTime and GetTime()) or 0
+
 		if rec.iconFrame then
 			local f = rec.iconFrame
 			refreshIconTexture(rec)
-			local rem = rec.remaining
 			local isQueued = rec.isQueued and not rec.isManual
 			local isPaused = rec.isPaused and not rec.isManual
 			local isBlocked = rec.isBlocked and not rec.isManual
@@ -699,128 +886,80 @@ function M:updateRecord(eventID, eventInfo, remaining)
 					f.tex:SetDesaturated(false)
 				end
 				f.tex:SetVertexColor(1, 1, 1, 1)
-				M.ensureFullBorder(f.main, L.ICON_BORDER_THICKNESS, 0, 0, 0, 1)
+				local borderR, borderG, borderB, borderA = getIconBorderColor(rec)
+				if borderR then
+					M.ensureFullBorder(f.main, L.ICON_BORDER_THICKNESS, borderR, borderG, borderB, borderA)
+				else
+					M.ensureFullBorder(f.main, L.ICON_BORDER_THICKNESS, 0, 0, 0, 1)
+				end
 			end
 
-			if isQueued then
-				if f.timeText._sbmStatus ~= QUEUED_LABEL then
-					f.timeText:SetText(QUEUED_LABEL)
-					f.timeText._sbmStatus = QUEUED_LABEL
+			local keepUpdating = updateIconCountdownVisual(rec, nowForVisual)
+			if keepUpdating then
+				if f:GetScript("OnUpdate") ~= iconCountdownOnUpdate then
+					f:SetScript("OnUpdate", iconCountdownOnUpdate)
 				end
-				f.cd:Clear()
-			else
-				if f.timeText._sbmStatus then
-					f.timeText._sbmStatus = nil
-				end
-				if type(rem) == "number" and rem > 0 then
-					f.timeText:SetText(U.formatTimeIcon(rem))
-					if rec.startTime and rec.duration and rec.duration > 0 and not isPaused then
-						f.cd:SetCooldown(rec.startTime, rec.duration)
-					else
-						f.cd:Clear()
-					end
-				else
-					f.timeText:SetText("")
-					f.cd:Clear()
-				end
+			elseif f:GetScript("OnUpdate") then
+				f:SetScript("OnUpdate", nil)
 			end
 
 		if rec.isManual then
 			-- no secure timeline indicators for manual timers
-			elseif isTest and M.ApplyTestIndicators then
-				M:ApplyTestIndicators(f, true)
-			else
-				if rec._indicatorDirty or not rec._indicatorAppliedIcon then
-					local eventIDForIndicators = rec._indicatorEventID
-					if type(eventIDForIndicators) ~= "number" and type(eventIDForIndicators) ~= "string" then
-						local recIDType = type(rec.id)
-						if recIDType == "number" or recIDType == "string" then
-							eventIDForIndicators = rec.id
-						end
+		else
+			if rec._indicatorDirty or not rec._indicatorAppliedIcon then
+				local eventIDForIndicators = rec._indicatorEventID
+				if type(eventIDForIndicators) ~= "number" and type(eventIDForIndicators) ~= "string" then
+					local recIDType = type(rec.id)
+					if recIDType == "number" or recIDType == "string" then
+						eventIDForIndicators = rec.id
 					end
-					M.applyIndicatorsToIconFrame(f, eventIDForIndicators)
-					rec._indicatorAppliedIcon = true
-					rec._indicatorDirty = false
 				end
+				M.applyIndicatorsToIconFrame(f, eventIDForIndicators)
+				rec._indicatorAppliedIcon = true
+				rec._indicatorDirty = false
 			end
+		end
 	end
 
-	if rec.barFrame then
+		if rec.barFrame then
 			refreshBarLabelAndIcon(rec)
 			local r, g, b, a = nil, nil, nil, nil
 			if not rec.isManual then
-				r, g, b, a = getConnectorBarColor(rec)
+				r, g, b, a = getTimelineBarColor(rec)
 			end
-		if r then
-			M.setBarFillFlat(rec.barFrame, r, g, b, a or 1)
-		else
-			M.setBarFillFlat(rec.barFrame, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A)
-		end
-		local bar = rec.barFrame
-		local rem = (type(rec.remaining) == "number") and rec.remaining or nil
-		local isQueued = rec.isQueued and not rec.isManual
-		local isPaused = rec.isPaused and not rec.isManual
-		local isBlocked = rec.isBlocked and not rec.isManual
-
-		if isQueued then
-			bar.sb:SetMinMaxValues(0, L.THRESHOLD_TO_BAR)
-			setBarValueAnimated(bar, 0, 0)
-			if bar.rt._sbmStatus ~= QUEUED_LABEL then
-				bar.rt:SetText(QUEUED_LABEL)
-				bar.rt._sbmStatus = QUEUED_LABEL
-			end
-		else
-			if rec.isManual then
-				local dur = rec.duration
-				if type(dur) == "number" and dur > 0 then
-					bar.sb:SetMinMaxValues(0, dur)
-					setBarValueAnimated(bar, U.clamp(rem or dur, 0, dur), C.TICK_INTERVAL)
-				else
-					bar.sb:SetMinMaxValues(0, L.THRESHOLD_TO_BAR)
-					setBarValueAnimated(bar, U.clamp(rem or 0, 0, L.THRESHOLD_TO_BAR), C.TICK_INTERVAL)
-				end
-				if rem ~= nil then
-					bar.rt:SetText(U.formatTimeBar(rem))
-				else
-					bar.rt:SetText("")
-				end
+			local appliedR, appliedG, appliedB, appliedA
+			if r then
+				appliedR, appliedG, appliedB, appliedA = r, g, b, a or 1
 			else
-				local shown = U.clamp(rem or L.THRESHOLD_TO_BAR, 0, L.THRESHOLD_TO_BAR)
-				bar.sb:SetMinMaxValues(0, L.THRESHOLD_TO_BAR)
-				setBarValueAnimated(bar, shown, C.TICK_INTERVAL)
-				local prefix = rec.isApproximate and "~" or ""
-				bar.rt:SetText(prefix .. U.formatTimeBar(shown))
+				appliedR, appliedG, appliedB, appliedA = L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A
 			end
-
-			if isPaused or isBlocked then
-				local status = isPaused and PAUSED_LABEL or BLOCKED_LABEL
-				if bar.rt._sbmStatus ~= status then
-					bar.rt:SetText(status)
-					bar.rt._sbmStatus = status
+			M.setBarFillFlat(rec.barFrame, appliedR, appliedG, appliedB, appliedA)
+			local bar = rec.barFrame
+			local keepUpdating = updateBarCountdownVisual(rec, nowForVisual)
+			if keepUpdating then
+				if bar:GetScript("OnUpdate") ~= barCountdownOnUpdate then
+					bar:SetScript("OnUpdate", barCountdownOnUpdate)
 				end
-			elseif bar.rt._sbmStatus then
-				bar.rt._sbmStatus = nil
+			elseif bar:GetScript("OnUpdate") then
+				bar:SetScript("OnUpdate", nil)
 			end
-		end
 
 		if rec.isManual then
 			-- no secure timeline indicators for manual timers
-			elseif isTest and M.ApplyTestIndicators then
-				M:ApplyTestIndicators(rec.barFrame, false)
-			else
-				if rec._indicatorDirty or not rec._indicatorAppliedBar then
-					local eventIDForIndicators = rec._indicatorEventID
-					if type(eventIDForIndicators) ~= "number" and type(eventIDForIndicators) ~= "string" then
-						local recIDType = type(rec.id)
-						if recIDType == "number" or recIDType == "string" then
-							eventIDForIndicators = rec.id
-						end
+		else
+			if rec._indicatorDirty or not rec._indicatorAppliedBar then
+				local eventIDForIndicators = rec._indicatorEventID
+				if type(eventIDForIndicators) ~= "number" and type(eventIDForIndicators) ~= "string" then
+					local recIDType = type(rec.id)
+					if recIDType == "number" or recIDType == "string" then
+						eventIDForIndicators = rec.id
 					end
-					M.applyIndicatorsToBarEnd(rec.barFrame, eventIDForIndicators)
-					rec._indicatorAppliedBar = true
-					rec._indicatorDirty = false
 				end
+				M.applyIndicatorsToBarEnd(rec.barFrame, eventIDForIndicators)
+				rec._indicatorAppliedBar = true
+				rec._indicatorDirty = false
 			end
+		end
 	end
 end
 
@@ -832,24 +971,14 @@ function M:Tick()
 	end
 
 	local now = (GetTime and GetTime()) or 0
-	local activeConnector = self.GetActiveConnectorID and self:GetActiveConnectorID() or nil
-	local sourceConnector = activeConnector
-	local testSourceActive = self._testActive
-		and self._testSourceConnectorID
-		and (self._testTicker or self._testTimelineEventIDSet or self._testEditModeEventTimer)
-	if testSourceActive then
-		sourceConnector = self._testSourceConnectorID
-	end
-	if sourceConnector == "timeline" then
-		local suppressUntil = self._suppressTimelineUntil
-		if suppressUntil then
-			if now < suppressUntil then
-				return
-			end
-			self._suppressTimelineUntil = nil
+	local suppressUntil = self._suppressTimelineUntil
+	if suppressUntil then
+		if now < suppressUntil then
+			return
 		end
+		self._suppressTimelineUntil = nil
 	end
-	local sourceEvents = self.CollectConnectorEvents and self:CollectConnectorEvents(now, sourceConnector) or nil
+	local sourceEvents = self.CollectTimelineEvents and self:CollectTimelineEvents(now) or nil
 
 	local seen = self._seenEvents
 	if not seen then
@@ -872,15 +1001,10 @@ function M:Tick()
 					self._layoutDirty = true
 				end
 
-				rec.connectorID = sourceConnector
 				rec.forceBar = entry.forceBar and true or false
 				rec.isQueued = entry.isQueued and true or false
 				rec.isPaused = entry.isPaused and true or false
 				rec.isBlocked = entry.isBlocked and true or false
-				if entry.isTest ~= nil then
-					rec.isTest = entry.isTest and true or false
-				end
-
 				self:updateRecord(eventID, entry.eventInfo, entry.remaining)
 			end
 		end
@@ -901,8 +1025,6 @@ function M:Tick()
 				rec.remaining = rem
 				self:updateRecord(id, rec.eventInfo, rem)
 			end
-		elseif rec and rec.connectorID and sourceConnector and rec.connectorID ~= sourceConnector then
-			self:removeEvent(id)
 		elseif not seen[id] then
 			self:removeEvent(id)
 		end

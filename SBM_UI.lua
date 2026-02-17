@@ -147,12 +147,16 @@ M:UpdatePrivateAuraAnchorPosition()
 
 local function buildPrivateAuraAnchorInfo(auraIndex, offsetX, offsetY)
 	local size = L.PRIVATE_AURA_SIZE
+	-- Calculate border scale to match icon size (formula adapted from BigWigs)
+	-- Slightly boost to better cover corners on the rounded native border texture.
+	local borderScale = size / 32 * 2.35
+
 	return {
 		unitToken = "player",
 		auraIndex = auraIndex,
 		parent = privateAurasAnchor,
 		showCountdownFrame = true,
-		showCountdownNumbers = false,
+		showCountdownNumbers = true,
 		iconInfo = {
 			iconAnchor = {
 				point = "CENTER",
@@ -163,22 +167,9 @@ local function buildPrivateAuraAnchorInfo(auraIndex, offsetX, offsetY)
 			},
 			iconWidth = size,
 			iconHeight = size,
+			borderScale = borderScale,
 		},
 	}
-end
-
-function M:SetPrivateAuraPosition(x, y)
-	x = tonumber(x) or 0
-	y = tonumber(y) or 0
-	if SimpleBossModsDB and SimpleBossModsDB.cfg and SimpleBossModsDB.cfg.privateAuras then
-		SimpleBossModsDB.cfg.privateAuras.x = x
-		SimpleBossModsDB.cfg.privateAuras.y = y
-	end
-	L.PRIVATE_AURA_X = x
-	L.PRIVATE_AURA_Y = y
-	if self.UpdatePrivateAuraAnchorPosition then
-		self:UpdatePrivateAuraAnchorPosition()
-	end
 end
 
 local function formatCombatTimer(secs)
@@ -289,10 +280,11 @@ function M:UpdatePrivateAuraAnchor()
 	end
 end
 
-local function getVisibleChildCount(parent)
-	if not parent then return 0 end
+function M:GetPrivateAuraVisibleCount()
+	if not L.PRIVATE_AURA_ENABLED then return 0 end
+	if not privateAurasAnchor then return 0 end
 	local count = 0
-	for _, child in ipairs({ parent:GetChildren() }) do
+	for _, child in ipairs({ privateAurasAnchor:GetChildren() }) do
 		if child.__sbmPrivateAuraTest or child.__sbmPrivateAuraOverlay then
 			-- skip test frame
 		else
@@ -305,14 +297,9 @@ local function getVisibleChildCount(parent)
 	return count
 end
 
-function M:GetPrivateAuraVisibleCount()
-	if not L.PRIVATE_AURA_ENABLED then return 0 end
-	return getVisibleChildCount(privateAurasAnchor)
-end
-
 privateAuraBorderThickness = function()
 	if not U or not U.clamp then return 2 end
-	return U.clamp(math.floor(L.PRIVATE_AURA_SIZE * 0.06 + 0.5), 1, 4)
+	return U.clamp(math.floor(L.PRIVATE_AURA_SIZE * 0.08 + 0.5), 1, 5)
 end
 
 local function isForbidden(obj)
@@ -361,6 +348,29 @@ local function hidePrivateAuraBorders(frame)
 	end
 end
 
+local function bumpPrivateAuraStackFont(frame)
+	if not frame then return end
+	local countText = frame.Count or frame.count
+	if not (countText and countText.GetFont and countText.SetFont) then
+		return
+	end
+
+	local font, size, flags = countText:GetFont()
+	if not font or type(size) ~= "number" then
+		return
+	end
+
+	local targetSize = math.max(8, math.floor(size * 1.12 + 0.5))
+	if countText.__sbmSize == targetSize and countText.__sbmFont == font and countText.__sbmFlags == flags then
+		return
+	end
+
+	countText:SetFont(font, targetSize, flags)
+	countText.__sbmSize = targetSize
+	countText.__sbmFont = font
+	countText.__sbmFlags = flags
+end
+
 local function stylePrivateAuraFrame(frame)
 	if not frame then return end
 	if frame.__sbmPrivateAuraTest then return end
@@ -377,6 +387,12 @@ local function stylePrivateAuraFrame(frame)
 		safeHideRegion(frame.Symbol)
 	end
 	hidePrivateAuraBorders(frame)
+	bumpPrivateAuraStackFont(frame)
+
+	local cooldown = frame.Cooldown or frame.cooldown or frame.cd
+	if cooldown and cooldown.SetHideCountdownNumbers then
+		cooldown:SetHideCountdownNumbers(false)
+	end
 
 	local holder = frame.__sbmPrivateAuraBorder
 	if not holder then
@@ -1015,23 +1031,8 @@ end
 
 local function parseTooltipSpellID(value)
 	if isSecretValue(value) then
-		local ok, asString = pcall(tostring, value)
-		if not ok or type(asString) ~= "string" then
-			return nil
-		end
-		local trimmedSecret = asString:match("^%s*(.-)%s*$")
-		if trimmedSecret == "" then
-			return nil
-		end
-		local secretNumeric = tonumber(trimmedSecret)
-			or tonumber(trimmedSecret:match("^spell:(%d+)$"))
-			or tonumber(trimmedSecret:match("^Timer(%d+)"))
-			or tonumber(trimmedSecret:match("^Timerej(%d+)"))
-			or tonumber(trimmedSecret:match("^ej(%d+)$"))
-		if secretNumeric and secretNumeric > 0 then
-			return secretNumeric
-		end
-		return nil
+		-- Never index or pattern-match secret strings; return as-is and let secure API handle it.
+		return value
 	end
 
 	if type(value) == "number" then
@@ -1087,13 +1088,14 @@ local function showEventTooltip(self)
 
 	if not usedSpell then
 		local label = eventInfo and U.safeGetLabel(eventInfo) or nil
-		if not isSecretValue(label) then
-			if not label or label == "" then
-				if type(rec.id) == "number" then
-					label = "Event " .. tostring(rec.id)
-				else
-					label = "Ability"
-				end
+		if isSecretValue(label) then
+			label = nil
+		end
+		if not label or label == "" then
+			if type(rec.id) == "number" then
+				label = "Event " .. tostring(rec.id)
+			else
+				label = "Ability"
 			end
 		end
 		GameTooltip:SetText(label or "Ability", 1, 1, 1, 1, true)
@@ -1233,6 +1235,7 @@ local function releaseIcon(f)
 	f:Hide()
 	f:ClearAllPoints()
 	f.__id = nil
+	f:SetScript("OnUpdate", nil)
 	f.tex:SetTexture(nil)
 	if f.tex.SetDesaturated then
 		f.tex:SetDesaturated(false)

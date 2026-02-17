@@ -11,6 +11,18 @@ end
 M.Const = M.Const or {}
 local C = M.Const
 
+local bitBand = (bit and bit.band) or (bit32 and bit32.band)
+
+local function isPlayerInCombat()
+	if InCombatLockdown and InCombatLockdown() then
+		return true
+	end
+	if UnitAffectingCombat then
+		return UnitAffectingCombat("player") and true or false
+	end
+	return false
+end
+
 local LSM = LibStub and LibStub("LibSharedMedia-3.0", true)
 M.LSM = LSM
 if LSM then
@@ -58,182 +70,264 @@ C.BAR_END_INDICATOR_GAP_X = 6
 C.BAR_FG_R, C.BAR_FG_G, C.BAR_FG_B, C.BAR_FG_A = (255/255), (152/255), (0/255), 1.0
 C.BAR_BG_R, C.BAR_BG_G, C.BAR_BG_B, C.BAR_BG_A = 0.0, 0.0, 0.0, 0.90
 
-local function normalizeConnectorID(id)
-	if type(id) ~= "string" then
-		return nil
-	end
-	id = id:lower()
-	if id == "timeline" or id == "bigwigs" or id == "dbm" then
-		return id
-	end
-	return nil
-end
-
-local function normalizeBigWigsColorMode(mode)
-	if type(mode) ~= "string" then
-		return "normal"
-	end
-	mode = mode:lower()
-	if mode == "emphasized" then
-		return "emphasized"
-	end
-	return "normal"
-end
+local INDICATOR_PRIORITY_GROUP_DEFAULT = {
+	"dispels",
+	"roles",
+	"other",
+	"severity",
+	"playerRole",
+}
 
 M.Defaults = M.Defaults or {
-	cfg = {
-		general = {
-			gap = 8,
-			autoInsertKeystone = false,
-			thresholdToBar = C.THRESHOLD_TO_BAR,
-			font = "SBM Expressway",
-		},
-		connectors = {
-			provider = "timeline",
-			useRecommendedSettings = true,
-			disableBlizzardTimeline = false,
-			useDBMColors = true,
-			bigWigsColorMode = "normal",
-			hideBigWigsBars = true,
-			hideDBMBars = true,
-		},
-		icons = {
-			enabled = true,
-			size = 64,
-			fontSize = 32,
-			borderThickness = 2,
-			font = "SBM Expressway",
-			gap = 8,
-			perRow = C.ICONS_PER_ROW,
-			limit = 0,
-			anchorFrom = "TOPLEFT",
-			anchorTo = "CENTER",
-			anchorParent = "NONE",
-			customParent = "",
-			x = 300,
-			y = 0,
-			growDirection = "RIGHT_DOWN",
-		},
-		bars = {
-			width = 352,
-			height = 36,
-			fontSize = 16,
-			borderThickness = 2,
-			swapIconSide = false,
-			swapIndicatorSide = false,
-			hideIcon = false,
-			texture = "SBM Flat",
-			anchorFrom = "BOTTOMLEFT",
-			anchorTo = "TOPLEFT",
-			anchorParent = "SimpleBossMods_Icons",
-			customParent = "",
-			x = 0,
-			y = 8,
-			growDirection = "UP",
-			sortAscending = true,
-			fillDirection = "LEFT",
-			color = {
-				r = C.BAR_FG_R,
-				g = C.BAR_FG_G,
-				b = C.BAR_FG_B,
-				a = C.BAR_FG_A,
+		cfg = {
+			general = {
+				gap = 8,
+				autoInsertKeystone = false,
+				thresholdToBar = C.THRESHOLD_TO_BAR,
+				useRecommendedTimelineSettings = true,
+					indicatorColors = {
+						deadly = { r = 0.96, g = 0.20, b = 0.20, a = 1.0 },
+						enrage = { r = 1.00, g = 0.60, b = 0.10, a = 1.0 },
+						bleed = { r = 0.85, g = 0.10, b = 0.10, a = 1.0 },
+						magic = { r = 0.30, g = 0.60, b = 1.00, a = 1.0 },
+						disease = { r = 0.30, g = 0.70, b = 0.20, a = 1.0 },
+						curse = { r = 0.78, g = 0.35, b = 0.86, a = 1.0 },
+						poison = { r = 0.10, g = 0.90, b = 0.10, a = 1.0 },
+						tank = { r = 1.0, g = 1.0, b = 1.0, a = 1.0 },
+						healer = { r = 1.0, g = 1.0, b = 1.0, a = 1.0 },
+						dps = { r = 1.0, g = 1.0, b = 1.0, a = 1.0 },
+						severitylow = { r = 0.95, g = 0.82, b = 0.20, a = 1.0 },
+						severitymedium = { r = 0.95, g = 0.48, b = 0.12, a = 1.0 },
+						severityhigh = { r = 0.90, g = 0.15, b = 0.15, a = 1.0 },
+						},
+						useDispelColors = true,
+						useRoleColors = true,
+						useOtherColors = true,
+						usePlayerRoleColor = false,
+						useSeverityColors = false,
+						useIconBorderColors = false,
+						indicatorPriorityGroups = {
+							"dispels",
+							"roles",
+							"other",
+							"severity",
+							"playerRole",
+						},
+					useCustomPlayerRoleColor = false,
+					customPlayerRoleColor = { r = 1.0, g = 0.84, b = 0.0, a = 1.0 },
+					font = "SBM Expressway",
 			},
-			bgColor = {
-				r = C.BAR_BG_R,
-				g = C.BAR_BG_G,
-				b = C.BAR_BG_B,
-				a = C.BAR_BG_A,
+			icons = {
+				enabled = true,
+				size = 64,
+				fontSize = 32,
+				borderThickness = 2,
+				font = "SBM Expressway",
+				gap = 8,
+				perRow = C.ICONS_PER_ROW,
+				limit = 0,
+				anchorFrom = "TOPLEFT",
+				anchorTo = "CENTER",
+				anchorParent = "NONE",
+				customParent = "",
+				x = 300,
+				y = 0,
+				growDirection = "RIGHT_DOWN",
+			},
+			bars = {
+				width = 352,
+				height = 36,
+				fontSize = 16,
+				borderThickness = 2,
+				swapIconSide = false,
+				swapIndicatorSide = false,
+				hideIcon = false,
+				texture = "SBM Flat",
+				anchorFrom = "BOTTOMLEFT",
+				anchorTo = "TOPLEFT",
+				anchorParent = "SimpleBossMods_Icons",
+				customParent = "",
+				x = 0,
+				y = 8,
+				growDirection = "UP",
+				sortAscending = true,
+				fillDirection = "LEFT",
+				color = {
+					r = C.BAR_FG_R,
+					g = C.BAR_FG_G,
+					b = C.BAR_FG_B,
+					a = C.BAR_FG_A,
+				},
+				bgColor = {
+					r = C.BAR_BG_R,
+					g = C.BAR_BG_G,
+					b = C.BAR_BG_B,
+					a = C.BAR_BG_A,
+				},
+			},
+			indicators = { iconSize = 10, barSize = 20 },
+			privateAuras = {
+				enabled = true,
+				size = 48,
+				gap = 6,
+				growDirection = "RIGHT",
+				x = 0,
+				y = -8,
+				anchorFrom = "TOPLEFT",
+				anchorTo = "BOTTOMLEFT",
+				anchorParent = "SimpleBossMods_Icons",
+				customParent = "",
+			},
+			combatTimer = {
+				enabled = false,
+				x = 0,
+				y = 0,
+				anchorFrom = "TOPLEFT",
+				anchorTo = "BOTTOMLEFT",
+				anchorParent = "SimpleBossMods_PrivateAuras",
+				customParent = "",
+				font = "SBM Expressway",
+				fontSize = 18,
+				color = { r = 1, g = 1, b = 1, a = 1 },
+				borderColor = { r = 0, g = 0, b = 0, a = 1 },
+				bgColor = { r = 0, g = 0, b = 0, a = 0.8 },
 			},
 		},
-		colors = {
-			severity = {
-				low = { r = 0.22, g = 0.78, b = 0.22, a = 1.0 },
-				medium = { r = C.BAR_FG_R, g = C.BAR_FG_G, b = C.BAR_FG_B, a = C.BAR_FG_A },
-				high = { r = 0.90, g = 0.24, b = 0.24, a = 1.0 },
-			},
-		},
-		indicators = { iconSize = 10, barSize = 20 },
-		privateAuras = {
-			enabled = true,
-			size = 48,
-			gap = 6,
-			growDirection = "RIGHT",
-			x = 0,
-			y = -8,
-			anchorFrom = "TOPLEFT",
-			anchorTo = "BOTTOMLEFT",
-			anchorParent = "SimpleBossMods_Icons",
-			customParent = "",
-		},
-		combatTimer = {
-			enabled = false,
-			x = 0,
-			y = 0,
-			anchorFrom = "TOPLEFT",
-			anchorTo = "BOTTOMLEFT",
-			anchorParent = "SimpleBossMods_PrivateAuras",
-			customParent = "",
-			font = "SBM Expressway",
-			fontSize = 18,
-			color = { r = 1, g = 1, b = 1, a = 1 },
-			borderColor = { r = 0, g = 0, b = 0, a = 1 },
-			bgColor = { r = 0, g = 0, b = 0, a = 0.8 },
-		},
-	},
+	}
+
+local GENERAL_INDICATOR_COLOR_KEYS = {
+	"deadly",
+	"enrage",
+	"bleed",
+	"magic",
+	"disease",
+	"curse",
+	"poison",
+	"tank",
+	"healer",
+	"dps",
+	"severitylow",
+	"severitymedium",
+	"severityhigh",
 }
+M.IndicatorColorKeys = GENERAL_INDICATOR_COLOR_KEYS
+
+local INDICATOR_PRIORITY_GROUP_SET = {
+	playerRole = true,
+	dispels = true,
+	roles = true,
+	other = true,
+	severity = true,
+}
+
+local function normalizeIndicatorPriorityGroups(groups)
+	local out = {}
+	local seen = {}
+	if type(groups) == "table" then
+		for _, key in ipairs(groups) do
+			if type(key) == "string" and INDICATOR_PRIORITY_GROUP_SET[key] and not seen[key] then
+				seen[key] = true
+				out[#out + 1] = key
+			end
+		end
+	end
+	for _, key in ipairs(INDICATOR_PRIORITY_GROUP_DEFAULT) do
+		if not seen[key] then
+			out[#out + 1] = key
+		end
+	end
+	return out
+end
+
+M.NormalizeIndicatorPriorityGroups = normalizeIndicatorPriorityGroups
+M.IndicatorPriorityGroupDefault = INDICATOR_PRIORITY_GROUP_DEFAULT
 
 function M:EnsureDefaults()
 	SimpleBossModsDB = SimpleBossModsDB or {}
 	SimpleBossModsDB.cfg = SimpleBossModsDB.cfg or {}
 	SimpleBossModsDB.manualTimers = SimpleBossModsDB.manualTimers or {}
+	
+	-- Legacy cache cleanup
+	if SimpleBossModsDB.encounterEventCache then SimpleBossModsDB.encounterEventCache = nil end
+	if SimpleBossModsDB.spellCache then SimpleBossModsDB.spellCache = nil end
+	if SimpleBossModsDB.cacheBuild then SimpleBossModsDB.cacheBuild = nil end
+	if SimpleBossModsDB.encounterEventSets then SimpleBossModsDB.encounterEventSets = nil end
+	if SimpleBossModsDB.encounterSpellMask then SimpleBossModsDB.encounterSpellMask = nil end
 
 	local cfg = SimpleBossModsDB.cfg
 	cfg.general = cfg.general or {
 		gap = M.Defaults.cfg.general.gap,
 		autoInsertKeystone = M.Defaults.cfg.general.autoInsertKeystone,
 		thresholdToBar = M.Defaults.cfg.general.thresholdToBar,
+		useRecommendedTimelineSettings = M.Defaults.cfg.general.useRecommendedTimelineSettings,
 	}
+	local function approx(a, b)
+		if type(a) ~= "number" or type(b) ~= "number" then return false end
+		return math.abs(a - b) < 0.0001
+	end
+	local function repairColor(color, defR, defG, defB, defA)
+		if type(color.r) ~= "number" then color.r = defR end
+		if type(color.g) ~= "number" then color.g = defG end
+		if type(color.b) ~= "number" then color.b = defB end
+		if type(color.a) ~= "number" then color.a = defA end
+		if color.a == 0 and approx(color.r, defR) and approx(color.g, defG) and approx(color.b, defB) then
+			color.a = defA
+		end
+	end
+
 	if cfg.general.autoInsertKeystone == nil then
 		cfg.general.autoInsertKeystone = M.Defaults.cfg.general.autoInsertKeystone
 	end
 	if cfg.general.thresholdToBar == nil then
 		cfg.general.thresholdToBar = M.Defaults.cfg.general.thresholdToBar
 	end
+	if cfg.general.useRecommendedTimelineSettings == nil then
+		local legacyConnectors = cfg.connectors
+		if type(legacyConnectors) == "table" and legacyConnectors.useRecommendedSettings ~= nil then
+			cfg.general.useRecommendedTimelineSettings = legacyConnectors.useRecommendedSettings ~= false
+		else
+			cfg.general.useRecommendedTimelineSettings = M.Defaults.cfg.general.useRecommendedTimelineSettings
+		end
+	else
+		cfg.general.useRecommendedTimelineSettings = cfg.general.useRecommendedTimelineSettings and true or false
+	end
 	if cfg.general.font == nil then
 		cfg.general.font = M.Defaults.cfg.general.font
 	end
-	cfg.connectors = cfg.connectors or {
-		provider = M.Defaults.cfg.connectors.provider,
-		useRecommendedSettings = M.Defaults.cfg.connectors.useRecommendedSettings,
-		disableBlizzardTimeline = M.Defaults.cfg.connectors.disableBlizzardTimeline,
-		useDBMColors = M.Defaults.cfg.connectors.useDBMColors,
-		bigWigsColorMode = M.Defaults.cfg.connectors.bigWigsColorMode,
-		hideBigWigsBars = M.Defaults.cfg.connectors.hideBigWigsBars,
-		hideDBMBars = M.Defaults.cfg.connectors.hideDBMBars,
+		if cfg.general.useDispelColors == nil then
+			cfg.general.useDispelColors = M.Defaults.cfg.general.useDispelColors
+		end
+		if cfg.general.useRoleColors == nil then
+			cfg.general.useRoleColors = M.Defaults.cfg.general.useRoleColors
+		end
+		if cfg.general.useOtherColors == nil then
+			cfg.general.useOtherColors = M.Defaults.cfg.general.useOtherColors
+		end
+		if cfg.general.usePlayerRoleColor == nil then
+			cfg.general.usePlayerRoleColor = M.Defaults.cfg.general.usePlayerRoleColor
+		end
+		if cfg.general.useSeverityColors == nil then
+			cfg.general.useSeverityColors = M.Defaults.cfg.general.useSeverityColors
+		end
+		if cfg.general.useIconBorderColors == nil then
+			cfg.general.useIconBorderColors = M.Defaults.cfg.general.useIconBorderColors
+		end
+		cfg.general.indicatorPriorityGroups = normalizeIndicatorPriorityGroups(cfg.general.indicatorPriorityGroups)
+		if cfg.general.prioritizePlayerRole ~= nil then
+			cfg.general.prioritizePlayerRole = nil
+		end
+		if cfg.general.useCustomPlayerRoleColor == nil then
+			cfg.general.useCustomPlayerRoleColor = M.Defaults.cfg.general.useCustomPlayerRoleColor
+		end
+	cfg.general.customPlayerRoleColor = cfg.general.customPlayerRoleColor or {
+		r = M.Defaults.cfg.general.customPlayerRoleColor.r,
+		g = M.Defaults.cfg.general.customPlayerRoleColor.g,
+		b = M.Defaults.cfg.general.customPlayerRoleColor.b,
+		a = M.Defaults.cfg.general.customPlayerRoleColor.a,
 	}
-	do
-		local provider = normalizeConnectorID(cfg.connectors.provider)
-		if not provider then
-			provider = M.Defaults.cfg.connectors.provider
-		end
-		cfg.connectors.provider = provider
-		if cfg.connectors.useRecommendedSettings == nil then
-			cfg.connectors.useRecommendedSettings = M.Defaults.cfg.connectors.useRecommendedSettings
-		end
-		if cfg.connectors.disableBlizzardTimeline == nil then
-			cfg.connectors.disableBlizzardTimeline = M.Defaults.cfg.connectors.disableBlizzardTimeline
-		end
-		if cfg.connectors.useDBMColors == nil then
-			cfg.connectors.useDBMColors = M.Defaults.cfg.connectors.useDBMColors
-		end
-		cfg.connectors.bigWigsColorMode = normalizeBigWigsColorMode(cfg.connectors.bigWigsColorMode or M.Defaults.cfg.connectors.bigWigsColorMode)
-		if cfg.connectors.hideBigWigsBars == nil then
-			cfg.connectors.hideBigWigsBars = M.Defaults.cfg.connectors.hideBigWigsBars
-		end
-		if cfg.connectors.hideDBMBars == nil then
-			cfg.connectors.hideDBMBars = M.Defaults.cfg.connectors.hideDBMBars
-		end
-	end
+	repairColor(cfg.general.customPlayerRoleColor, M.Defaults.cfg.general.customPlayerRoleColor.r, M.Defaults.cfg.general.customPlayerRoleColor.g, M.Defaults.cfg.general.customPlayerRoleColor.b, M.Defaults.cfg.general.customPlayerRoleColor.a)
+
+	cfg.general.indicatorColors = cfg.general.indicatorColors or {}
 	cfg.icons = cfg.icons or {
 		size = M.Defaults.cfg.icons.size,
 		fontSize = M.Defaults.cfg.icons.fontSize,
@@ -371,82 +465,22 @@ function M:EnsureDefaults()
 		b = M.Defaults.cfg.bars.bgColor.b,
 		a = M.Defaults.cfg.bars.bgColor.a,
 	}
-	local function approx(a, b)
-		if type(a) ~= "number" or type(b) ~= "number" then return false end
-		return math.abs(a - b) < 0.0001
-	end
-	local function repairColor(color, defR, defG, defB, defA)
-		if type(color.r) ~= "number" then color.r = defR end
-		if type(color.g) ~= "number" then color.g = defG end
-		if type(color.b) ~= "number" then color.b = defB end
-		if type(color.a) ~= "number" then color.a = defA end
-		if color.a == 0 and approx(color.r, defR) and approx(color.g, defG) and approx(color.b, defB) then
-			color.a = defA
-		end
-	end
-	repairColor(cfg.bars.color, M.Defaults.cfg.bars.color.r, M.Defaults.cfg.bars.color.g, M.Defaults.cfg.bars.color.b, M.Defaults.cfg.bars.color.a)
 	repairColor(cfg.bars.bgColor, M.Defaults.cfg.bars.bgColor.r, M.Defaults.cfg.bars.bgColor.g, M.Defaults.cfg.bars.bgColor.b, M.Defaults.cfg.bars.bgColor.a)
-	cfg.colors = cfg.colors or {
-		severity = {
-			low = {
-				r = M.Defaults.cfg.colors.severity.low.r,
-				g = M.Defaults.cfg.colors.severity.low.g,
-				b = M.Defaults.cfg.colors.severity.low.b,
-				a = M.Defaults.cfg.colors.severity.low.a,
-			},
-			medium = {
-				r = M.Defaults.cfg.colors.severity.medium.r,
-				g = M.Defaults.cfg.colors.severity.medium.g,
-				b = M.Defaults.cfg.colors.severity.medium.b,
-				a = M.Defaults.cfg.colors.severity.medium.a,
-			},
-			high = {
-				r = M.Defaults.cfg.colors.severity.high.r,
-				g = M.Defaults.cfg.colors.severity.high.g,
-				b = M.Defaults.cfg.colors.severity.high.b,
-				a = M.Defaults.cfg.colors.severity.high.a,
-			},
-		},
-	}
-	cfg.colors.severity = cfg.colors.severity or {}
-	local severityDefaults = M.Defaults.cfg.colors.severity
-	if type(cfg.colors.severity.low) ~= "table" then
-		cfg.colors.severity.low = {
-			r = severityDefaults.low.r,
-			g = severityDefaults.low.g,
-			b = severityDefaults.low.b,
-			a = severityDefaults.low.a,
-		}
-	end
-	if type(cfg.colors.severity.medium) ~= "table" then
-		local legacyBarColor = cfg.bars and cfg.bars.color
-		if type(legacyBarColor) == "table" then
-			cfg.colors.severity.medium = {
-				r = legacyBarColor.r,
-				g = legacyBarColor.g,
-				b = legacyBarColor.b,
-				a = legacyBarColor.a,
-			}
-		else
-			cfg.colors.severity.medium = {
-				r = severityDefaults.medium.r,
-				g = severityDefaults.medium.g,
-				b = severityDefaults.medium.b,
-				a = severityDefaults.medium.a,
+	for _, key in ipairs(GENERAL_INDICATOR_COLOR_KEYS) do
+		local defaults = M.Defaults.cfg.general.indicatorColors[key]
+		if type(cfg.general.indicatorColors[key]) ~= "table" then
+			cfg.general.indicatorColors[key] = {
+				r = defaults.r,
+				g = defaults.g,
+				b = defaults.b,
+				a = defaults.a,
 			}
 		end
+		repairColor(cfg.general.indicatorColors[key], defaults.r, defaults.g, defaults.b, defaults.a)
 	end
-	if type(cfg.colors.severity.high) ~= "table" then
-		cfg.colors.severity.high = {
-			r = severityDefaults.high.r,
-			g = severityDefaults.high.g,
-			b = severityDefaults.high.b,
-			a = severityDefaults.high.a,
-		}
+	if cfg.colors then
+		cfg.colors = nil
 	end
-	repairColor(cfg.colors.severity.low, severityDefaults.low.r, severityDefaults.low.g, severityDefaults.low.b, severityDefaults.low.a)
-	repairColor(cfg.colors.severity.medium, severityDefaults.medium.r, severityDefaults.medium.g, severityDefaults.medium.b, severityDefaults.medium.a)
-	repairColor(cfg.colors.severity.high, severityDefaults.high.r, severityDefaults.high.g, severityDefaults.high.b, severityDefaults.high.a)
 	cfg.indicators = cfg.indicators or {
 		iconSize = M.Defaults.cfg.indicators.iconSize,
 		barSize = M.Defaults.cfg.indicators.barSize,
@@ -493,6 +527,9 @@ function M:EnsureDefaults()
 	cfg.privateAuras.sound = nil
 	cfg.privateAuras.soundKitID = nil
 	cfg.privateAuras.soundChannel = nil
+	cfg.privateAuras.font = nil
+	cfg.privateAuras.fontSize = nil
+	cfg.privateAuras.stackFontSize = nil
 	do
 		local dir = cfg.privateAuras.growDirection
 		if type(dir) ~= "string" then
@@ -579,6 +616,8 @@ local L = M.Live
 M.Util = M.Util or {}
 local U = M.Util
 
+M.events = M.events or {}
+
 function U.clamp(v, lo, hi)
 	if type(issecretvalue) == "function" then
 		local vSecret = issecretvalue(v)
@@ -632,19 +671,46 @@ function M.SyncLiveConfig()
 	local gc = SimpleBossModsDB.cfg.general
 	local ic = SimpleBossModsDB.cfg.icons
 	local bc = SimpleBossModsDB.cfg.bars
-	local cc = SimpleBossModsDB.cfg.colors or M.Defaults.cfg.colors
 	local inc = SimpleBossModsDB.cfg.indicators
 	local pc = SimpleBossModsDB.cfg.privateAuras or M.Defaults.cfg.privateAuras
 	local ct = SimpleBossModsDB.cfg.combatTimer or M.Defaults.cfg.combatTimer
-	local cnc = SimpleBossModsDB.cfg.connectors or M.Defaults.cfg.connectors
 	L.PRIVATE_AURA_ENABLED = pc.enabled ~= false
-	L.CONNECTOR_PROVIDER = normalizeConnectorID(cnc.provider) or M.Defaults.cfg.connectors.provider
-	L.CONNECTOR_USE_RECOMMENDED_SETTINGS = cnc.useRecommendedSettings ~= false
-	L.CONNECTOR_DISABLE_BLIZZARD_TIMELINE = cnc.disableBlizzardTimeline == true
-	L.CONNECTOR_USE_DBM_COLORS = cnc.useDBMColors ~= false
-	L.CONNECTOR_BIGWIGS_COLOR_MODE = normalizeBigWigsColorMode(cnc.bigWigsColorMode)
-	L.CONNECTOR_HIDE_BIGWIGS_BARS = cnc.hideBigWigsBars ~= false
-	L.CONNECTOR_HIDE_DBM_BARS = cnc.hideDBMBars ~= false
+	L.TIMELINE_USE_RECOMMENDED_SETTINGS = gc.useRecommendedTimelineSettings ~= false
+	do
+		local indicatorColors = gc.indicatorColors or M.Defaults.cfg.general.indicatorColors
+		for _, key in ipairs(GENERAL_INDICATOR_COLOR_KEYS) do
+			local defaults = M.Defaults.cfg.general.indicatorColors[key] or {}
+			local color = indicatorColors[key] or defaults
+			color = color or defaults
+			local upper = key:upper()
+			local prefix = "INDICATOR_COLOR_" .. upper .. "_"
+			local r = tonumber(color.r) or defaults.r
+			local g = tonumber(color.g) or defaults.g
+			local b = tonumber(color.b) or defaults.b
+			local a = tonumber(color.a) or defaults.a
+			L[prefix .. "R"] = U.clamp(r, 0, 1)
+			L[prefix .. "G"] = U.clamp(g, 0, 1)
+			L[prefix .. "B"] = U.clamp(b, 0, 1)
+			L[prefix .. "A"] = U.clamp(a, 0, 1)
+		end
+		
+			L.USE_DISPEL_COLORS = gc.useDispelColors ~= false
+			L.USE_ROLE_COLORS = gc.useRoleColors ~= false
+			L.USE_OTHER_COLORS = gc.useOtherColors ~= false
+			L.USE_PLAYER_ROLE_COLOR = gc.usePlayerRoleColor ~= false
+			L.USE_SEVERITY_COLORS = gc.useSeverityColors ~= false
+			L.USE_ICON_BORDER_COLORS = gc.useIconBorderColors and true or false
+			local groups = normalizeIndicatorPriorityGroups(gc.indicatorPriorityGroups)
+			gc.indicatorPriorityGroups = groups
+			L.INDICATOR_PRIORITY_GROUPS = groups
+			L.USE_CUSTOM_PLAYER_ROLE_COLOR = gc.useCustomPlayerRoleColor and true or false
+		
+		local crc = gc.customPlayerRoleColor or M.Defaults.cfg.general.customPlayerRoleColor
+		L.CUSTOM_PLAYER_ROLE_COLOR_R = U.clamp(tonumber(crc.r) or 1.0, 0, 1)
+		L.CUSTOM_PLAYER_ROLE_COLOR_G = U.clamp(tonumber(crc.g) or 0.84, 0, 1)
+		L.CUSTOM_PLAYER_ROLE_COLOR_B = U.clamp(tonumber(crc.b) or 0.0, 0, 1)
+		L.CUSTOM_PLAYER_ROLE_COLOR_A = U.clamp(tonumber(crc.a) or 1.0, 0, 1)
+	end
 
 	L.GAP = tonumber(gc.gap) or 6
 	L.AUTO_INSERT_KEYSTONE = gc.autoInsertKeystone and true or false
@@ -783,26 +849,6 @@ function M.SyncLiveConfig()
 	L.BAR_BG_B = U.clamp(tonumber(barBg.b) or C.BAR_BG_B, 0, 1)
 	L.BAR_BG_A = U.clamp(tonumber(barBg.a) or C.BAR_BG_A, 0, 1)
 
-	local severityColors = cc.severity or M.Defaults.cfg.colors.severity
-	local lowSeverity = severityColors.low or M.Defaults.cfg.colors.severity.low
-	local mediumSeverity = severityColors.medium or M.Defaults.cfg.colors.severity.medium
-	local highSeverity = severityColors.high or M.Defaults.cfg.colors.severity.high
-
-	L.SEVERITY_LOW_R = U.clamp(tonumber(lowSeverity.r) or M.Defaults.cfg.colors.severity.low.r, 0, 1)
-	L.SEVERITY_LOW_G = U.clamp(tonumber(lowSeverity.g) or M.Defaults.cfg.colors.severity.low.g, 0, 1)
-	L.SEVERITY_LOW_B = U.clamp(tonumber(lowSeverity.b) or M.Defaults.cfg.colors.severity.low.b, 0, 1)
-	L.SEVERITY_LOW_A = U.clamp(tonumber(lowSeverity.a) or M.Defaults.cfg.colors.severity.low.a, 0, 1)
-
-	L.SEVERITY_MEDIUM_R = U.clamp(tonumber(mediumSeverity.r) or M.Defaults.cfg.colors.severity.medium.r, 0, 1)
-	L.SEVERITY_MEDIUM_G = U.clamp(tonumber(mediumSeverity.g) or M.Defaults.cfg.colors.severity.medium.g, 0, 1)
-	L.SEVERITY_MEDIUM_B = U.clamp(tonumber(mediumSeverity.b) or M.Defaults.cfg.colors.severity.medium.b, 0, 1)
-	L.SEVERITY_MEDIUM_A = U.clamp(tonumber(mediumSeverity.a) or M.Defaults.cfg.colors.severity.medium.a, 0, 1)
-
-	L.SEVERITY_HIGH_R = U.clamp(tonumber(highSeverity.r) or M.Defaults.cfg.colors.severity.high.r, 0, 1)
-	L.SEVERITY_HIGH_G = U.clamp(tonumber(highSeverity.g) or M.Defaults.cfg.colors.severity.high.g, 0, 1)
-	L.SEVERITY_HIGH_B = U.clamp(tonumber(highSeverity.b) or M.Defaults.cfg.colors.severity.high.b, 0, 1)
-	L.SEVERITY_HIGH_A = U.clamp(tonumber(highSeverity.a) or M.Defaults.cfg.colors.severity.high.a, 0, 1)
-
 	L.ICON_INDICATOR_SIZE = tonumber(inc.iconSize) or 0
 	L.BAR_INDICATOR_SIZE = tonumber(inc.barSize) or 0
 
@@ -894,6 +940,273 @@ end
 local function isSecretValue(value)
 	return type(issecretvalue) == "function" and issecretvalue(value)
 end
+
+local INDICATOR_MASK_MAP = {
+	deadly = 1,
+	enrage = 2,
+	bleed = 4,
+	magic = 8,
+	disease = 16,
+	curse = 32,
+	poison = 64,
+	tank = 128,
+	healer = 256,
+	dps = 512,
+}
+
+local ENCOUNTER_SEVERITY = (Enum and Enum.EncounterEventSeverity) or {}
+local SEVERITY_LOW = (type(ENCOUNTER_SEVERITY.Low) == "number") and ENCOUNTER_SEVERITY.Low or 0
+local SEVERITY_MEDIUM = (type(ENCOUNTER_SEVERITY.Medium) == "number") and ENCOUNTER_SEVERITY.Medium or 1
+local SEVERITY_HIGH = (type(ENCOUNTER_SEVERITY.High) == "number") and ENCOUNTER_SEVERITY.High or 2
+
+local GROUP_INDICATORS = {
+	dispels = { "bleed", "magic", "disease", "curse", "poison" },
+	roles = { "tank", "healer", "dps" },
+	other = { "deadly", "enrage" },
+}
+
+local cachedPlayerRoleForColors = nil
+
+local function normalizePlayerRole(role)
+	if type(role) ~= "string" or role == "" or role == "NONE" then
+		return nil
+	end
+	if role == "DAMAGER" then
+		return "DPS"
+	end
+	return role
+end
+
+local function resolvePlayerRoleForColors()
+	local role = nil
+	if UnitGroupRolesAssigned then
+		role = normalizePlayerRole(UnitGroupRolesAssigned("player"))
+	end
+	if not role and GetSpecialization and GetSpecializationRole then
+		local spec = GetSpecialization()
+		if spec then
+			role = normalizePlayerRole(GetSpecializationRole(spec))
+		end
+	end
+	if role then
+		cachedPlayerRoleForColors = role
+	end
+	return role or cachedPlayerRoleForColors
+end
+
+local function getIndicatorColorValues(key)
+	local prefix = "INDICATOR_COLOR_" .. key:upper() .. "_"
+	local r = L[prefix .. "R"]
+	if type(r) ~= "number" then return nil end
+	local g = L[prefix .. "G"]
+	local b = L[prefix .. "B"]
+	local a = L[prefix .. "A"]
+	if type(g) ~= "number" or type(b) ~= "number" then return nil end
+	return r, g, b, (type(a) == "number" and a) or 1.0
+end
+
+local function isIndicatorColorKeyEnabled(key)
+	if key == "deadly" or key == "enrage" then
+		return L.USE_OTHER_COLORS ~= false
+	end
+	if key == "bleed" or key == "magic" or key == "disease" or key == "curse" or key == "poison" then
+		return L.USE_DISPEL_COLORS ~= false
+	end
+	if key == "tank" or key == "healer" or key == "dps" then
+		return L.USE_ROLE_COLORS ~= false
+	end
+	if key == "severitylow" or key == "severitymedium" or key == "severityhigh" then
+		return L.USE_SEVERITY_COLORS ~= false
+	end
+	return true
+end
+
+local function normalizeSeverityValue(value)
+	if isSecretValue(value) then
+		return nil
+	end
+	local t = type(value)
+	if t == "number" then
+		if value == SEVERITY_LOW or value == SEVERITY_MEDIUM or value == SEVERITY_HIGH then
+			return value
+		end
+		return nil
+	end
+	if t == "string" then
+		local lower = value:lower()
+		if lower == "low" then return SEVERITY_LOW end
+		if lower == "medium" then return SEVERITY_MEDIUM end
+		if lower == "high" then return SEVERITY_HIGH end
+	end
+	return nil
+end
+
+local function pickColorForIndicator(mask, key)
+	if type(mask) ~= "number" or mask <= 0 or not bitBand then
+		return nil
+	end
+	if not isIndicatorColorKeyEnabled(key) then
+		return nil
+	end
+	local bit = INDICATOR_MASK_MAP[key]
+	if not bit or bitBand(mask, bit) == 0 then
+		return nil
+	end
+	return getIndicatorColorValues(key)
+end
+
+local function pickSeverityColor(severity)
+	local sev = normalizeSeverityValue(severity)
+	if not sev then
+		return nil
+	end
+	if sev == SEVERITY_LOW then
+		return getIndicatorColorValues("severitylow")
+	end
+	if sev == SEVERITY_MEDIUM then
+		return getIndicatorColorValues("severitymedium")
+	end
+	if sev == SEVERITY_HIGH then
+		return getIndicatorColorValues("severityhigh")
+	end
+	return nil
+end
+
+local function pickPlayerRoleColor(mask)
+	if type(mask) ~= "number" or mask <= 0 or not bitBand then
+		return nil
+	end
+	if L.USE_PLAYER_ROLE_COLOR == false then
+		return nil
+	end
+	local role = resolvePlayerRoleForColors()
+	if type(role) == "string" then
+		local roleKey = role:lower()
+		local roleMask = INDICATOR_MASK_MAP[roleKey]
+		if roleMask and bitBand(mask, roleMask) ~= 0 then
+			return L.CUSTOM_PLAYER_ROLE_COLOR_R, L.CUSTOM_PLAYER_ROLE_COLOR_G, L.CUSTOM_PLAYER_ROLE_COLOR_B, L.CUSTOM_PLAYER_ROLE_COLOR_A
+		end
+	end
+	return nil
+end
+
+local function pickGroupColor(mask, severity, groupKey)
+	if groupKey == "playerRole" then
+		return pickPlayerRoleColor(mask)
+	end
+	if groupKey == "severity" then
+		return pickSeverityColor(severity)
+	end
+	local keys = GROUP_INDICATORS[groupKey]
+	if not keys then
+		return nil
+	end
+	for _, key in ipairs(keys) do
+		local r, g, b, a = pickColorForIndicator(mask, key)
+		if r then
+			return r, g, b, a
+		end
+	end
+	return nil
+end
+
+local function pickEventColor(mask, severity)
+	local order = L.INDICATOR_PRIORITY_GROUPS or INDICATOR_PRIORITY_GROUP_DEFAULT
+	for _, groupKey in ipairs(order) do
+		local r, g, b, a = pickGroupColor(mask, severity, groupKey)
+		if r then
+			return r, g, b, a
+		end
+	end
+	return nil
+end
+
+function M.ResolveIndicatorColorForMask(mask)
+	local maskNum = tonumber(mask)
+	if type(maskNum) ~= "number" then
+		return nil
+	end
+	return pickEventColor(maskNum, nil)
+end
+
+function M.ResolveIndicatorColorForEvent(mask, severity)
+	local maskNum = tonumber(mask)
+	if type(maskNum) ~= "number" then
+		maskNum = nil
+	end
+	return pickEventColor(maskNum, severity)
+end
+
+local function normalizeMaskValue(value)
+	local mask = tonumber(value)
+	if type(mask) ~= "number" or mask <= 0 then
+		return nil
+	end
+	return mask
+end
+
+-- Replaces tryApplyEventColor and UpdateEncounterEventCacheEntry logic
+local function processEvent(eventID, info)
+	if not (C_EncounterEvents and C_EncounterEvents.SetEventColor) then return end
+	if type(eventID) ~= "number" or type(info) ~= "table" then return end
+
+	local mask = normalizeMaskValue(info.icons)
+	if isSecretValue(mask) then return end
+	local severity = normalizeSeverityValue(info.severity)
+
+	local r, g, b, a = pickEventColor(mask, severity)
+	
+	-- If no specific indicator color, use default bar color
+	if not r then
+		if L.BAR_FG_R and L.BAR_FG_G and L.BAR_FG_B then
+			r, g, b, a = L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, (L.BAR_FG_A or 1.0)
+		else
+			-- No color to apply
+			return
+		end
+	end
+
+	-- Optimization: Check if color is already set to what we want
+	-- info.color is {r, g, b} usually, sometimes {r, g, b, a}
+	if info.color then
+		local curR = info.color.r or 0
+		local curG = info.color.g or 0
+		local curB = info.color.b or 0
+		-- Simple delta comparison to avoid floating point issues
+		if math.abs(curR - r) < 0.01 and math.abs(curG - g) < 0.01 and math.abs(curB - b) < 0.01 then
+			return
+		end
+	end
+
+	C_EncounterEvents.SetEventColor(eventID, { r = r, g = g, b = b, a = a })
+end
+
+function M:BuildEncounterEventCache()
+	-- Renamed conceptually to "ProcessAllEncounterEvents" but kept name for compatibility if called externally
+	if not (C_EncounterEvents and C_EncounterEvents.GetEventList and C_EncounterEvents.GetEventInfo) then return end
+
+	local ok, eventList = pcall(C_EncounterEvents.GetEventList)
+	if ok and type(eventList) == "table" then
+		print("|cFF9CDF95Simple|rBossMods: Building encounter data...")
+		for _, eventID in ipairs(eventList) do
+			if type(eventID) == "number" then
+				local infoOk, info = pcall(C_EncounterEvents.GetEventInfo, eventID)
+				if infoOk and type(info) == "table" then
+					processEvent(eventID, info)
+				end
+			end
+		end
+	end
+	M._cacheRebuildPending = nil
+end
+
+function M:EnsureEncounterEventCache()
+	if M._cacheRebuildPending then
+		if isPlayerInCombat() then return end
+		M:BuildEncounterEventCache()
+	end
+end
+
 
 local function formatClockTime(secs)
 	if secs >= 3600 then
@@ -987,13 +1300,47 @@ function U.safeGetLabel(eventInfo)
 		return label
 	end
 
-	if label == "" and type(eventInfo.spellID) == "number" then
+	local spellID = nil
+	if type(eventInfo.spellID) == "number" and not isSecretValue(eventInfo.spellID) then
+		spellID = eventInfo.spellID
+	end
+
+	if label == "" then
+		local encounterEventID = tonumber(eventInfo.encounterEventID or eventInfo.eventID or eventInfo.id)
+		if encounterEventID and not isSecretValue(encounterEventID) and C_EncounterEvents and type(C_EncounterEvents.GetEventInfo) == "function" then
+			local ok, encounterInfo = pcall(C_EncounterEvents.GetEventInfo, encounterEventID)
+			if ok and type(encounterInfo) == "table" then
+				local candidates = {
+					encounterInfo.spellName,
+					encounterInfo.name,
+					encounterInfo.text,
+					encounterInfo.title,
+					encounterInfo.label,
+					encounterInfo.overrideName,
+				}
+				for _, candidate in ipairs(candidates) do
+					if type(candidate) == "string" and candidate ~= "" and not isSecretValue(candidate) then
+						label = candidate
+						break
+					end
+				end
+				if not spellID then
+					local candidateSpellID = tonumber(encounterInfo.spellID or encounterInfo.spellId)
+					if candidateSpellID and not isSecretValue(candidateSpellID) then
+						spellID = candidateSpellID
+					end
+				end
+			end
+		end
+	end
+
+	if label == "" and type(spellID) == "number" then
 		local ok, spellName = pcall(function()
 			if C_Spell and C_Spell.GetSpellName then
-				return C_Spell.GetSpellName(eventInfo.spellID)
+				return C_Spell.GetSpellName(spellID)
 			end
 			if GetSpellInfo then
-				return GetSpellInfo(eventInfo.spellID)
+				return GetSpellInfo(spellID)
 			end
 			return nil
 		end)
@@ -1003,40 +1350,6 @@ function U.safeGetLabel(eventInfo)
 	end
 
 	return label
-end
-
-function U.safeGetSeverity(eventInfo)
-	if type(eventInfo) ~= "table" then return nil end
-	local severity = eventInfo.severity
-	if isSecretValue(severity) then return nil end
-
-	if type(severity) == "number" then
-		return U.clamp(U.round(severity), 0, 2)
-	end
-
-	if type(severity) == "string" then
-		local key = severity:upper()
-		if key == "LOW" then return 0 end
-		if key == "MEDIUM" then return 1 end
-		if key == "HIGH" then return 2 end
-	end
-
-	return nil
-end
-
-function M:CanUseTimelineScriptEvents()
-	return C_EncounterTimeline and type(C_EncounterTimeline.AddScriptEvent) == "function"
-end
-
-function M:SafeAddScriptEvent(payload)
-	if not (C_EncounterTimeline and type(C_EncounterTimeline.AddScriptEvent) == "function") then
-		return nil
-	end
-	local ok, id = pcall(C_EncounterTimeline.AddScriptEvent, payload)
-	if ok then return id end
-	ok, id = pcall(C_EncounterTimeline.AddScriptEvent, C_EncounterTimeline, payload)
-	if ok then return id end
-	return nil
 end
 
 function U.barIndicatorSize()
