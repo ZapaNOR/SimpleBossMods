@@ -476,6 +476,8 @@ local function ensureTestPrivateAuraFrames(self)
 
 		local text = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 		text:SetPoint("CENTER", f, "CENTER", 0, 0)
+		text:SetJustifyH("CENTER")
+		text:SetJustifyV("MIDDLE")
 		text:SetTextColor(1, 1, 1, 1)
 		text:SetShadowColor(0, 0, 0, 1)
 		text:SetShadowOffset(1, -1)
@@ -493,7 +495,7 @@ function M:UpdateTestPrivateAura()
 	local frames = self._testPrivateAuraFrames
 	if not frames then return end
 	local size, _, _, _, _, startX, startY, stepX, stepY = getPrivateAuraLayout()
-	local fontSize = math.max(12, math.floor(size * 0.6 + 0.5))
+	local fontSize = math.max(9, math.min(16, math.floor(size * 0.16 + 0.5) + 2))
 
 	for i, f in ipairs(frames) do
 		f:SetSize(size, size)
@@ -509,11 +511,8 @@ function M:UpdateTestPrivateAura()
 		end
 		if f.text then
 			f.text:SetFont(L.FONT_PATH or C.FONT_PATH, fontSize, C.FONT_FLAGS)
-			if i == 1 then
-				f.text:SetText("P")
-			else
-				f.text:SetText(tostring(i))
-			end
+			f.text:SetWidth(math.max(1, size - 4))
+			f.text:SetText("Private\nAura\n" .. tostring(i))
 		end
 
 		if i == 1 then
@@ -813,6 +812,15 @@ end
 
 local function applyIndicatorsToBarEnd(barFrame, eventID)
 	if not barFrame or not barFrame.endIndicatorsFrame then return end
+	if L.BAR_INDICATOR_HIDDEN then
+		if barFrame.endIndicatorsFrame.__indicatorTextures then
+			for _, tex in ipairs(barFrame.endIndicatorsFrame.__indicatorTextures) do
+				tex:Hide()
+			end
+		end
+		barFrame.endIndicatorsFrame:SetWidth(1)
+		return
+	end
 	local idType = type(eventID)
 	if idType ~= "number" and idType ~= "string" then return end
 
@@ -902,14 +910,25 @@ local function applyBarMirror(f)
 				indicatorOnLeft = not indicatorOnLeft
 			end
 		end
-		f.endIndicatorsFrame:ClearAllPoints()
-		if indicatorOnLeft then
-			f.endIndicatorsFrame:SetPoint("RIGHT", f, "LEFT", -C.BAR_END_INDICATOR_GAP_X, 0)
+		local indicatorsVisible = not L.BAR_INDICATOR_HIDDEN
+		f.endIndicatorsFrame:SetShown(indicatorsVisible)
+		if not indicatorsVisible then
+			if f.endIndicatorsFrame.__indicatorTextures then
+				for _, tex in ipairs(f.endIndicatorsFrame.__indicatorTextures) do
+					tex:Hide()
+				end
+			end
+			f.endIndicatorsFrame:SetWidth(1)
 		else
-			f.endIndicatorsFrame:SetPoint("LEFT", f, "RIGHT", C.BAR_END_INDICATOR_GAP_X, 0)
+			f.endIndicatorsFrame:ClearAllPoints()
+			if indicatorOnLeft then
+				f.endIndicatorsFrame:SetPoint("RIGHT", f, "LEFT", -C.BAR_END_INDICATOR_GAP_X, 0)
+			else
+				f.endIndicatorsFrame:SetPoint("LEFT", f, "RIGHT", C.BAR_END_INDICATOR_GAP_X, 0)
+			end
+			f.endIndicatorsFrame:SetPoint("TOP", f, "TOP", 0, 0)
+			f.endIndicatorsFrame:SetPoint("BOTTOM", f, "BOTTOM", 0, 0)
 		end
-		f.endIndicatorsFrame:SetPoint("TOP", f, "TOP", 0, 0)
-		f.endIndicatorsFrame:SetPoint("BOTTOM", f, "BOTTOM", 0, 0)
 	end
 
 	if f.txt then

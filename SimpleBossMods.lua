@@ -41,7 +41,7 @@ C.BAR_TEX_DEFAULT = "Interface\\TARGETINGFRAME\\UI-StatusBar"
 -- Defaults
 C.THRESHOLD_TO_BAR = 5.0
 C.ICON_ZOOM = 0.10
-C.ICONS_PER_ROW = 5
+C.ICONS_PER_ROW = 6
 C.TICK_INTERVAL = 0.20
 
 -- Move everything slightly up (requested)
@@ -71,11 +71,11 @@ C.BAR_FG_R, C.BAR_FG_G, C.BAR_FG_B, C.BAR_FG_A = (255/255), (152/255), (0/255), 
 C.BAR_BG_R, C.BAR_BG_G, C.BAR_BG_B, C.BAR_BG_A = 0.0, 0.0, 0.0, 0.90
 
 local INDICATOR_PRIORITY_GROUP_DEFAULT = {
+	"playerRole",
 	"dispels",
 	"roles",
 	"other",
 	"severity",
-	"playerRole",
 }
 
 M.Defaults = M.Defaults or {
@@ -86,16 +86,16 @@ M.Defaults = M.Defaults or {
 				thresholdToBar = C.THRESHOLD_TO_BAR,
 				useRecommendedTimelineSettings = true,
 					indicatorColors = {
-						deadly = { r = 0.96, g = 0.20, b = 0.20, a = 1.0 },
-						enrage = { r = 1.00, g = 0.60, b = 0.10, a = 1.0 },
-						bleed = { r = 0.85, g = 0.10, b = 0.10, a = 1.0 },
-						magic = { r = 0.30, g = 0.60, b = 1.00, a = 1.0 },
-						disease = { r = 0.30, g = 0.70, b = 0.20, a = 1.0 },
-						curse = { r = 0.78, g = 0.35, b = 0.86, a = 1.0 },
-						poison = { r = 0.10, g = 0.90, b = 0.10, a = 1.0 },
-						tank = { r = 1.0, g = 1.0, b = 1.0, a = 1.0 },
-						healer = { r = 1.0, g = 1.0, b = 1.0, a = 1.0 },
-						dps = { r = 1.0, g = 1.0, b = 1.0, a = 1.0 },
+						deadly = { r = (239 / 255), g = (11 / 255), b = (30 / 255), a = 1.0 },
+						enrage = { r = (239 / 255), g = (11 / 255), b = (30 / 255), a = 1.0 },
+						bleed = { r = (255 / 255), g = (2 / 255), b = (31 / 255), a = 1.0 },
+						magic = { r = (0 / 255), g = (126 / 255), b = (240 / 255), a = 1.0 },
+						disease = { r = (77 / 255), g = (179 / 255), b = (51 / 255), a = 1.0 },
+						curse = { r = (166 / 255), g = (44 / 255), b = (234 / 255), a = 1.0 },
+						poison = { r = (245 / 255), g = (255 / 255), b = (15 / 255), a = 1.0 },
+						tank = { r = (198 / 255), g = (183 / 255), b = (156 / 255), a = 1.0 },
+						healer = { r = (36 / 255), g = (213 / 255), b = (2 / 255), a = 1.0 },
+						dps = { r = (162 / 255), g = (162 / 255), b = (186 / 255), a = 1.0 },
 						severitylow = { r = 0.95, g = 0.82, b = 0.20, a = 1.0 },
 						severitymedium = { r = 0.95, g = 0.48, b = 0.12, a = 1.0 },
 						severityhigh = { r = 0.90, g = 0.15, b = 0.15, a = 1.0 },
@@ -107,11 +107,11 @@ M.Defaults = M.Defaults or {
 						useSeverityColors = false,
 						useIconBorderColors = false,
 						indicatorPriorityGroups = {
+							"playerRole",
 							"dispels",
 							"roles",
 							"other",
 							"severity",
-							"playerRole",
 						},
 					useCustomPlayerRoleColor = false,
 					customPlayerRoleColor = { r = 1.0, g = 0.84, b = 0.0, a = 1.0 },
@@ -142,7 +142,8 @@ M.Defaults = M.Defaults or {
 				swapIconSide = false,
 				swapIndicatorSide = false,
 				hideIcon = false,
-				texture = "SBM Flat",
+				hideIndicators = false,
+				texture = "Dragonflight",
 				anchorFrom = "BOTTOMLEFT",
 				anchorTo = "TOPLEFT",
 				anchorParent = "SimpleBossMods_Icons",
@@ -165,7 +166,7 @@ M.Defaults = M.Defaults or {
 					a = C.BAR_BG_A,
 				},
 			},
-			indicators = { iconSize = 10, barSize = 20 },
+			indicators = { iconSize = 13, barSize = 24 },
 			privateAuras = {
 				enabled = true,
 				size = 48,
@@ -181,7 +182,7 @@ M.Defaults = M.Defaults or {
 			combatTimer = {
 				enabled = false,
 				x = 0,
-				y = 0,
+				y = -8,
 				anchorFrom = "TOPLEFT",
 				anchorTo = "BOTTOMLEFT",
 				anchorParent = "SimpleBossMods_PrivateAuras",
@@ -404,6 +405,7 @@ function M:EnsureDefaults()
 		swapIconSide = M.Defaults.cfg.bars.swapIconSide,
 		swapIndicatorSide = M.Defaults.cfg.bars.swapIndicatorSide,
 		hideIcon = M.Defaults.cfg.bars.hideIcon,
+		hideIndicators = M.Defaults.cfg.bars.hideIndicators,
 		anchorFrom = M.Defaults.cfg.bars.anchorFrom,
 		anchorTo = M.Defaults.cfg.bars.anchorTo,
 		anchorParent = M.Defaults.cfg.bars.anchorParent,
@@ -422,6 +424,9 @@ function M:EnsureDefaults()
 	end
 	if cfg.bars.hideIcon == nil then
 		cfg.bars.hideIcon = M.Defaults.cfg.bars.hideIcon
+	end
+	if cfg.bars.hideIndicators == nil then
+		cfg.bars.hideIndicators = M.Defaults.cfg.bars.hideIndicators
 	end
 	if cfg.bars.anchorFrom == nil then
 		cfg.bars.anchorFrom = M.Defaults.cfg.bars.anchorFrom
@@ -485,6 +490,12 @@ function M:EnsureDefaults()
 		iconSize = M.Defaults.cfg.indicators.iconSize,
 		barSize = M.Defaults.cfg.indicators.barSize,
 	}
+	if cfg.indicators.iconSize == nil then
+		cfg.indicators.iconSize = M.Defaults.cfg.indicators.iconSize
+	end
+	if cfg.indicators.barSize == nil then
+		cfg.indicators.barSize = M.Defaults.cfg.indicators.barSize
+	end
 	cfg.privateAuras = cfg.privateAuras or {
 		enabled = M.Defaults.cfg.privateAuras.enabled,
 		size = M.Defaults.cfg.privateAuras.size,
@@ -714,7 +725,7 @@ function M.SyncLiveConfig()
 
 	L.GAP = tonumber(gc.gap) or 6
 	L.AUTO_INSERT_KEYSTONE = gc.autoInsertKeystone and true or false
-	L.THRESHOLD_TO_BAR = U.clamp(tonumber(gc.thresholdToBar) or C.THRESHOLD_TO_BAR, 0.1, 600)
+	L.THRESHOLD_TO_BAR = U.clamp(tonumber(gc.thresholdToBar) or C.THRESHOLD_TO_BAR, 0, 600)
 
 	L.ICONS_ENABLED = ic.enabled ~= false
 	L.ICON_SIZE = ic.size
@@ -774,6 +785,7 @@ function M.SyncLiveConfig()
 	L.BAR_ICON_SWAP = bc.swapIconSide and true or false
 	L.BAR_INDICATOR_SWAP = bc.swapIndicatorSide and true or false
 	L.BAR_ICON_HIDDEN = bc.hideIcon and true or false
+	L.BAR_INDICATOR_HIDDEN = bc.hideIndicators and true or false
 	do
 		local dir = bc.growDirection
 		if type(dir) ~= "string" then
@@ -1076,15 +1088,15 @@ local function pickPlayerRoleColor(mask)
 	if type(mask) ~= "number" or mask <= 0 or not bitBand then
 		return nil
 	end
-	if L.USE_PLAYER_ROLE_COLOR == false then
-		return nil
-	end
 	local role = resolvePlayerRoleForColors()
 	if type(role) == "string" then
 		local roleKey = role:lower()
 		local roleMask = INDICATOR_MASK_MAP[roleKey]
 		if roleMask and bitBand(mask, roleMask) ~= 0 then
-			return L.CUSTOM_PLAYER_ROLE_COLOR_R, L.CUSTOM_PLAYER_ROLE_COLOR_G, L.CUSTOM_PLAYER_ROLE_COLOR_B, L.CUSTOM_PLAYER_ROLE_COLOR_A
+			if L.USE_CUSTOM_PLAYER_ROLE_COLOR then
+				return L.CUSTOM_PLAYER_ROLE_COLOR_R, L.CUSTOM_PLAYER_ROLE_COLOR_G, L.CUSTOM_PLAYER_ROLE_COLOR_B, L.CUSTOM_PLAYER_ROLE_COLOR_A
+			end
+			return getIndicatorColorValues(roleKey)
 		end
 	end
 	return nil

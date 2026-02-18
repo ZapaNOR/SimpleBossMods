@@ -48,6 +48,17 @@ local ANCHOR_POINT_MAP = {
 
 local bitBand = (bit and bit.band) or (bit32 and bit32.band)
 
+local function deepCopyTable(value)
+	if type(value) ~= "table" then
+		return value
+	end
+	local copy = {}
+	for k, v in pairs(value) do
+		copy[k] = deepCopyTable(v)
+	end
+	return copy
+end
+
 local function flushEncounterEventColorRefresh()
 	if type(M.BuildEncounterEventCache) ~= "function" then
 		return
@@ -267,6 +278,56 @@ end
 -- =========================
 -- Apply config live
 -- =========================
+function M:ResetAllSettings()
+	SimpleBossModsDB = SimpleBossModsDB or {}
+	SimpleBossModsDB.cfg = deepCopyTable(M.Defaults.cfg or {})
+
+	if self.EnsureDefaults then
+		self:EnsureDefaults()
+	end
+	M.SyncLiveConfig()
+
+	if self.SetupKeystoneAutoInsert then
+		self:SetupKeystoneAutoInsert()
+	end
+	if self.ApplyTimelineRecommendedMode then
+		self:ApplyTimelineRecommendedMode()
+	elseif self.ApplyTimelineConnectorMode then
+		self:ApplyTimelineConnectorMode()
+	end
+	if self.UpdateIconsAnchorPosition then
+		self:UpdateIconsAnchorPosition()
+	end
+	if self.UpdateBarsAnchorPosition then
+		self:UpdateBarsAnchorPosition()
+	end
+	if self.UpdatePrivateAuraAnchor then
+		self:UpdatePrivateAuraAnchor()
+	elseif self.UpdatePrivateAuraAnchorPosition then
+		self:UpdatePrivateAuraAnchorPosition()
+	end
+	if self.UpdatePrivateAuraFrames then
+		self:UpdatePrivateAuraFrames()
+	end
+	if self.UpdateCombatTimerAppearance then
+		self:UpdateCombatTimerAppearance()
+	end
+	if self.UpdateCombatTimerState then
+		self:UpdateCombatTimerState()
+	end
+
+	requestEncounterEventColorRefresh()
+	for id, rec in pairs(self.events or {}) do
+		self:updateRecord(id, rec.eventInfo, rec.remaining)
+	end
+	if self.Tick then
+		self:Tick()
+	end
+	if self.LayoutAll then
+		self:LayoutAll()
+	end
+end
+
 function M:ApplyGeneralConfig(gap, autoInsertKeystone)
 	SimpleBossModsDB.cfg.general.gap = tonumber(gap) or (SimpleBossModsDB.cfg.general.gap or 6)
 	if autoInsertKeystone == nil then
@@ -304,9 +365,16 @@ end
 function M:ApplyPriorityPresetIndicators()
 	local gc = SimpleBossModsDB.cfg.general
 	local defaults = M.Defaults.cfg.general
+	local order = {
+		"playerRole",
+		"dispels",
+		"roles",
+		"other",
+		"severity",
+	}
 	gc.indicatorPriorityGroups = (type(M.NormalizeIndicatorPriorityGroups) == "function")
-		and M.NormalizeIndicatorPriorityGroups(defaults.indicatorPriorityGroups)
-		or defaults.indicatorPriorityGroups
+		and M.NormalizeIndicatorPriorityGroups(order)
+		or order
 	gc.useDispelColors = defaults.useDispelColors ~= false
 	gc.useRoleColors = defaults.useRoleColors ~= false
 	gc.useOtherColors = defaults.useOtherColors ~= false
@@ -325,6 +393,16 @@ end
 
 function M:ApplyPriorityPresetSeverity()
 	local gc = SimpleBossModsDB.cfg.general
+	local order = {
+		"severity",
+		"dispels",
+		"roles",
+		"other",
+		"playerRole",
+	}
+	gc.indicatorPriorityGroups = (type(M.NormalizeIndicatorPriorityGroups) == "function")
+		and M.NormalizeIndicatorPriorityGroups(order)
+		or order
 	gc.useDispelColors = false
 	gc.useRoleColors = false
 	gc.useOtherColors = false
@@ -751,13 +829,21 @@ function M:ApplyBarIconVisibilityConfig(hideIcon)
 	refreshBarMirrorAndIndicators()
 end
 
+function M:ApplyBarIndicatorVisibilityConfig(hideIndicators)
+	local bc = SimpleBossModsDB.cfg.bars
+	bc.hideIndicators = hideIndicators and true or false
+
+	M.SyncLiveConfig()
+	refreshBarMirrorAndIndicators()
+end
+
 function M:ApplyBarThresholdConfig(threshold)
 	local gc = SimpleBossModsDB.cfg.general
 	local v = tonumber(threshold)
 	if v == nil then
 		v = gc.thresholdToBar or C.THRESHOLD_TO_BAR
 	end
-	gc.thresholdToBar = U.clamp(v, 0.1, 600)
+	gc.thresholdToBar = U.clamp(v, 0, 600)
 
 	M.SyncLiveConfig()
 	requestEncounterEventColorRefresh()
@@ -1361,6 +1447,29 @@ function M:CreateSettingsWindow()
 			note2:SetText("Disable this if you want Blizzard timeline behavior unchanged.")
 			note2:SetFullWidth(true)
 			timeline:AddChild(note2)
+
+			local maintenance = AG:Create("InlineGroup")
+			maintenance:SetTitle("Maintenance")
+			maintenance:SetLayout("Flow")
+			maintenance:SetFullWidth(true)
+			container:AddChild(maintenance)
+
+			local resetAll = AG:Create("Button")
+			resetAll:SetText("Reset all settings")
+			resetAll:SetFullWidth(true)
+			resetAll:SetCallback("OnClick", function()
+				if addon.ResetAllSettings then
+					addon:ResetAllSettings()
+				end
+				if addon._settingsTabGroup then
+					local selected = (addon._settingsTabStatus and addon._settingsTabStatus.selected) or "General"
+					if addon._settingsTabStatus then
+						addon._settingsTabStatus.selected = nil
+					end
+					addon._settingsTabGroup:SelectTab(selected)
+				end
+			end)
+			maintenance:AddChild(resetAll)
 		end
 
 		local function buildColorsTab(container)
@@ -1439,6 +1548,9 @@ function M:CreateSettingsWindow()
 			SimpleBossModsDB.cfg.general.indicatorPriorityGroups = groupOrder
 
 			for idx, key in ipairs(groupOrder) do
+				local nameWidth = 0.33
+				local toggleWidth = 0.25
+				local moveWidth = 0.20
 				local row = AG:Create("SimpleGroup")
 				row:SetLayout("Flow")
 				row:SetFullWidth(true)
@@ -1446,44 +1558,57 @@ function M:CreateSettingsWindow()
 
 				local name = AG:Create("Label")
 				name:SetText(string.format("%d. %s", idx, INDICATOR_PRIORITY_GROUP_LABELS[key] or key))
-				name:SetRelativeWidth(0.32)
+				name:SetRelativeWidth(nameWidth)
 				row:AddChild(name)
+				local hasToggle = false
 
 				if key == "playerRole" then
-					addCheckBox(row, "Use colors",
-						function() return SimpleBossModsDB.cfg.general.usePlayerRoleColor ~= false end,
-						function(v) M:ApplyUsePlayerRoleColor(v) end,
-						0.28
+					addCheckBox(row, "Use custom color",
+						function() return SimpleBossModsDB.cfg.general.useCustomPlayerRoleColor and true or false end,
+						function(v) M:ApplyUseCustomPlayerRoleColor(v) end,
+						toggleWidth
 					)
+					hasToggle = true
 				elseif key == "dispels" then
 					addCheckBox(row, "Use colors",
 						function() return SimpleBossModsDB.cfg.general.useDispelColors ~= false end,
 						function(v) M:ApplyUseDispelColors(v) end,
-						0.28
+						toggleWidth
 					)
+					hasToggle = true
 				elseif key == "roles" then
 					addCheckBox(row, "Use colors",
 						function() return SimpleBossModsDB.cfg.general.useRoleColors ~= false end,
 						function(v) M:ApplyUseRoleColors(v) end,
-						0.28
+						toggleWidth
 					)
+					hasToggle = true
 				elseif key == "other" then
 					addCheckBox(row, "Use colors",
 						function() return SimpleBossModsDB.cfg.general.useOtherColors ~= false end,
 						function(v) M:ApplyUseOtherColors(v) end,
-						0.28
+						toggleWidth
 					)
+					hasToggle = true
 				elseif key == "severity" then
 					addCheckBox(row, "Use colors",
 						function() return SimpleBossModsDB.cfg.general.useSeverityColors ~= false end,
 						function(v) M:ApplyUseSeverityColors(v) end,
-						0.28
+						toggleWidth
 					)
+					hasToggle = true
+				end
+
+				if not hasToggle then
+					local spacer = AG:Create("Label")
+					spacer:SetText("")
+					spacer:SetRelativeWidth(toggleWidth)
+					row:AddChild(spacer)
 				end
 
 				local upButton = AG:Create("Button")
 				upButton:SetText("Up")
-				upButton:SetRelativeWidth(0.20)
+				upButton:SetRelativeWidth(moveWidth)
 				upButton:SetDisabled(idx == 1)
 				upButton:SetCallback("OnClick", function()
 					local newOrder = {}
@@ -1498,7 +1623,7 @@ function M:CreateSettingsWindow()
 
 				local downButton = AG:Create("Button")
 				downButton:SetText("Down")
-				downButton:SetRelativeWidth(0.20)
+				downButton:SetRelativeWidth(moveWidth)
 				downButton:SetDisabled(idx == #groupOrder)
 				downButton:SetCallback("OnClick", function()
 					local newOrder = {}
@@ -1942,7 +2067,7 @@ function M:CreateSettingsWindow()
 			0.33
 		)
 
-		addNumberInput(bars, "Display bars when seconds remaining",
+		addNumberInput(bars, "Display bars when seconds remaining (0 = icons only)",
 			function() return SimpleBossModsDB.cfg.general.thresholdToBar end,
 			function(v) addon:ApplyBarThresholdConfig(v) end,
 			1
@@ -1951,19 +2076,25 @@ function M:CreateSettingsWindow()
 		addCheckBox(bars, "Swap Icon Side",
 			function() return SimpleBossModsDB.cfg.bars.swapIconSide end,
 			function(v) addon:ApplyBarIconSideConfig(v) end,
-			0.5
+			0.25
 		)
 
 		addCheckBox(bars, "Swap Indicator Side",
 			function() return SimpleBossModsDB.cfg.bars.swapIndicatorSide end,
 			function(v) addon:ApplyBarIndicatorSideConfig(v) end,
-			0.5
+			0.25
 		)
 
 		addCheckBox(bars, "Hide Icon",
 			function() return SimpleBossModsDB.cfg.bars.hideIcon end,
 			function(v) addon:ApplyBarIconVisibilityConfig(v) end,
-			0.5
+			0.25
+		)
+
+		addCheckBox(bars, "Hide Indicators",
+			function() return SimpleBossModsDB.cfg.bars.hideIndicators end,
+			function(v) addon:ApplyBarIndicatorVisibilityConfig(v) end,
+			0.25
 		)
 
 		local media = AG:Create("InlineGroup")
