@@ -1228,6 +1228,12 @@ local function acquireIcon()
 	end
 
 	f:SetSize(L.ICON_SIZE, L.ICON_SIZE)
+	f:SetAlpha(1)
+	f.__sbmIconLayoutPoint = nil
+	f.__sbmIconLayoutX = nil
+	f.__sbmIconLayoutY = nil
+	f.__sbmIconLayoutTargetX = nil
+	f.__sbmIconLayoutTargetY = nil
 	ensureFullBorder(f.main, L.ICON_BORDER_THICKNESS)
 
 	f.cd:SetFrameLevel(f.main:GetFrameLevel() + 5)
@@ -1251,9 +1257,24 @@ end
 
 local function releaseIcon(f)
 	if not f then return end
+	if M and M.ClearIconAnimation then
+		M:ClearIconAnimation(f)
+	end
+	if M and M.StopIconLayoutMotion then
+		M:StopIconLayoutMotion(f, false)
+	end
+	if M and M.StopIconFadeIn then
+		M:StopIconFadeIn(f, true)
+	end
 	f:Hide()
+	f:SetAlpha(1)
 	f:ClearAllPoints()
 	f.__id = nil
+	f.__sbmIconLayoutPoint = nil
+	f.__sbmIconLayoutX = nil
+	f.__sbmIconLayoutY = nil
+	f.__sbmIconLayoutTargetX = nil
+	f.__sbmIconLayoutTargetY = nil
 	f:SetScript("OnUpdate", nil)
 	f.tex:SetTexture(nil)
 	if f.tex.SetDesaturated then
@@ -1362,6 +1383,7 @@ local function acquireBar()
 	end
 
 	f:SetSize(L.BAR_WIDTH, L.BAR_HEIGHT)
+	f:SetAlpha(1)
 	ensureFullBorder(f, L.BAR_BORDER_THICKNESS)
 	if f.bg then
 		f.bg:SetColorTexture(L.BAR_BG_R, L.BAR_BG_G, L.BAR_BG_B, 1)
@@ -1388,9 +1410,19 @@ local function releaseBar(f)
 	if M and M.ClearBarAnimation then
 		M:ClearBarAnimation(f)
 	end
+	if M and M.StopBarLayoutMotion then
+		M:StopBarLayoutMotion(f, false)
+	end
+	if M and M.StopBarFadeIn then
+		M:StopBarFadeIn(f, true)
+	end
 	f:Hide()
+	f:SetAlpha(1)
 	f:ClearAllPoints()
 	f.__id = nil
+	f.__sbmLayoutPoint = nil
+	f.__sbmLayoutY = nil
+	f.__sbmLayoutTargetY = nil
 
 	f.sb:SetMinMaxValues(0, L.THRESHOLD_TO_BAR)
 	f.sb:SetValue(L.THRESHOLD_TO_BAR)

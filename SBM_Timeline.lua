@@ -34,7 +34,7 @@ local function getTimelineEventList()
 		-- If it's GetEventList, these args are ignored or might error if not handled, but usually Lua is lenient with extra args.
 		-- However, to be safe and optimized:
 		if ET.GetSortedEventList then
-			return ET.GetSortedEventList(nil, nil, true, false)
+			return ET.GetSortedEventList(nil, nil, false, false)
 		else
 			return ET.GetEventList()
 		end
@@ -46,6 +46,29 @@ local function isTerminalEventState(state)
 	if not Enum_EncounterTimelineEventState then return false end
 	return state == Enum_EncounterTimelineEventState.Finished
 		or state == Enum_EncounterTimelineEventState.Canceled
+end
+
+function M:SetTimelineEventTerminalState(eventID, state)
+	local idType = type(eventID)
+	if idType ~= "number" and idType ~= "string" then
+		return
+	end
+
+	if state == nil and C_EncounterTimeline and C_EncounterTimeline.GetEventState then
+		state = C_EncounterTimeline.GetEventState(eventID)
+	end
+
+	local terminalStates = self._timelineTerminalStateByID
+	if type(terminalStates) ~= "table" then
+		terminalStates = {}
+		self._timelineTerminalStateByID = terminalStates
+	end
+
+	if isTerminalEventState(state) then
+		terminalStates[eventID] = state
+	else
+		terminalStates[eventID] = nil
+	end
 end
 
 local function isQueuedTrack(track)
@@ -208,6 +231,11 @@ end
 function M:CollectTimelineEvents(now)
 	now = now or (GetTime and GetTime() or 0)
 	local events = {}
+	local terminalStates = self._timelineTerminalStateByID
+	if type(terminalStates) ~= "table" then
+		terminalStates = {}
+		self._timelineTerminalStateByID = terminalStates
+	end
 	
 	local list = getTimelineEventList()
 	if type(list) ~= "table" then
@@ -225,6 +253,11 @@ function M:CollectTimelineEvents(now)
 			local state = GetEventState(eventID)
 
 			local isTerminal = isTerminalEventState(state)
+			if isTerminal then
+				terminalStates[eventID] = state
+			else
+				terminalStates[eventID] = nil
+			end
 			local queued = isQueuedTrack(track) and not isTerminal
 
 			-- blocked
@@ -288,6 +321,7 @@ function M:CollectTimelineEvents(now)
 							encounterEventID = encounterEventID,
 							source = info.source,
 							color = eventColor,
+							state = state,
 						},
 						remaining = remaining,
 						isQueued = queued,

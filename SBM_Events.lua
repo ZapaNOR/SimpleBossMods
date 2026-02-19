@@ -614,8 +614,15 @@ ef:SetScript("OnEvent", function(_, event, ...)
 		if isTimelineConnectorActive() then
 			C_Timer.After(0, function() M:Tick() end)
 		end
-	elseif event == "ENCOUNTER_TIMELINE_EVENT_STATE_CHANGED"
-		or event == "ENCOUNTER_TIMELINE_EVENT_TRACK_CHANGED"
+	elseif event == "ENCOUNTER_TIMELINE_EVENT_STATE_CHANGED" then
+		local eventID = ...
+		if isTimelineConnectorActive() and M.SetTimelineEventTerminalState then
+			M:SetTimelineEventTerminalState(eventID)
+		end
+		if isTimelineConnectorActive() then
+			C_Timer.After(0, function() M:Tick() end)
+		end
+	elseif event == "ENCOUNTER_TIMELINE_EVENT_TRACK_CHANGED"
 		or event == "ENCOUNTER_TIMELINE_EVENT_BLOCK_STATE_CHANGED" then
 		if isTimelineConnectorActive() then
 			C_Timer.After(0, function() M:Tick() end)
@@ -623,7 +630,7 @@ ef:SetScript("OnEvent", function(_, event, ...)
 	elseif event == "ENCOUNTER_TIMELINE_EVENT_REMOVED" then
 		local eventID = ...
 		if isTimelineConnectorActive() and type(eventID) == "number" then
-			M:removeEvent(eventID)
+			M:removeEvent(eventID, "timeline-removed", false)
 		end
 		if isTimelineConnectorActive() then
 			C_Timer.After(0, function() M:Tick() end)

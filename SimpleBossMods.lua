@@ -80,12 +80,14 @@ local INDICATOR_PRIORITY_GROUP_DEFAULT = {
 
 M.Defaults = M.Defaults or {
 		cfg = {
-			general = {
-				gap = 8,
-				autoInsertKeystone = false,
-				thresholdToBar = C.THRESHOLD_TO_BAR,
-				useRecommendedTimelineSettings = true,
-					indicatorColors = {
+				general = {
+					gap = 8,
+					autoInsertKeystone = false,
+					thresholdToBar = C.THRESHOLD_TO_BAR,
+					useRecommendedTimelineSettings = true,
+					animateIcons = true,
+					animateBars = true,
+						indicatorColors = {
 						deadly = { r = (239 / 255), g = (11 / 255), b = (30 / 255), a = 1.0 },
 						enrage = { r = (239 / 255), g = (11 / 255), b = (30 / 255), a = 1.0 },
 						bleed = { r = (255 / 255), g = (2 / 255), b = (31 / 255), a = 1.0 },
@@ -256,12 +258,14 @@ function M:EnsureDefaults()
 	if SimpleBossModsDB.encounterSpellMask then SimpleBossModsDB.encounterSpellMask = nil end
 
 	local cfg = SimpleBossModsDB.cfg
-	cfg.general = cfg.general or {
-		gap = M.Defaults.cfg.general.gap,
-		autoInsertKeystone = M.Defaults.cfg.general.autoInsertKeystone,
-		thresholdToBar = M.Defaults.cfg.general.thresholdToBar,
-		useRecommendedTimelineSettings = M.Defaults.cfg.general.useRecommendedTimelineSettings,
-	}
+		cfg.general = cfg.general or {
+			gap = M.Defaults.cfg.general.gap,
+			autoInsertKeystone = M.Defaults.cfg.general.autoInsertKeystone,
+			thresholdToBar = M.Defaults.cfg.general.thresholdToBar,
+			useRecommendedTimelineSettings = M.Defaults.cfg.general.useRecommendedTimelineSettings,
+			animateIcons = M.Defaults.cfg.general.animateIcons,
+			animateBars = M.Defaults.cfg.general.animateBars,
+		}
 	local function approx(a, b)
 		if type(a) ~= "number" or type(b) ~= "number" then return false end
 		return math.abs(a - b) < 0.0001
@@ -291,6 +295,16 @@ function M:EnsureDefaults()
 		end
 	else
 		cfg.general.useRecommendedTimelineSettings = cfg.general.useRecommendedTimelineSettings and true or false
+	end
+	if cfg.general.animateIcons == nil then
+		cfg.general.animateIcons = M.Defaults.cfg.general.animateIcons
+	else
+		cfg.general.animateIcons = cfg.general.animateIcons and true or false
+	end
+	if cfg.general.animateBars == nil then
+		cfg.general.animateBars = M.Defaults.cfg.general.animateBars
+	else
+		cfg.general.animateBars = cfg.general.animateBars and true or false
 	end
 	if cfg.general.font == nil then
 		cfg.general.font = M.Defaults.cfg.general.font
@@ -687,6 +701,8 @@ function M.SyncLiveConfig()
 	local ct = SimpleBossModsDB.cfg.combatTimer or M.Defaults.cfg.combatTimer
 	L.PRIVATE_AURA_ENABLED = pc.enabled ~= false
 	L.TIMELINE_USE_RECOMMENDED_SETTINGS = gc.useRecommendedTimelineSettings ~= false
+	L.ANIMATE_ICONS = gc.animateIcons ~= false
+	L.ANIMATE_BARS = gc.animateBars ~= false
 	do
 		local indicatorColors = gc.indicatorColors or M.Defaults.cfg.general.indicatorColors
 		for _, key in ipairs(GENERAL_INDICATOR_COLOR_KEYS) do

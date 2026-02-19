@@ -530,6 +530,26 @@ function M:ApplyGeneralTimelineRecommendedSettings(enabled)
 	end
 end
 
+function M:ApplyGeneralAnimationConfig(animateIcons, animateBars)
+	local gc = SimpleBossModsDB.cfg.general
+	if animateIcons == nil then
+		animateIcons = gc.animateIcons ~= false
+	end
+	if animateBars == nil then
+		animateBars = gc.animateBars ~= false
+	end
+	gc.animateIcons = animateIcons and true or false
+	gc.animateBars = animateBars and true or false
+
+	M.SyncLiveConfig()
+	if self.ClearTimelineAnimationState then
+		self:ClearTimelineAnimationState()
+	end
+	if self.LayoutAll then
+		self:LayoutAll()
+	end
+end
+
 function M:ApplyGeneralIndicatorColor(key, r, g, b, a)
 	local defaults = M.Defaults.cfg.general.indicatorColors[key]
 	if not defaults then
@@ -1436,6 +1456,32 @@ function M:CreateSettingsWindow()
 					end
 				end,
 				1
+			)
+
+			addCheckBox(timeline, "Animate Icons",
+				function() return SimpleBossModsDB.cfg.general.animateIcons ~= false end,
+				function(value)
+					if addon.ApplyGeneralAnimationConfig then
+						addon:ApplyGeneralAnimationConfig(
+							value,
+							SimpleBossModsDB.cfg.general.animateBars ~= false
+						)
+					end
+				end,
+				0.5
+			)
+
+			addCheckBox(timeline, "Animate Bars",
+				function() return SimpleBossModsDB.cfg.general.animateBars ~= false end,
+				function(value)
+					if addon.ApplyGeneralAnimationConfig then
+						addon:ApplyGeneralAnimationConfig(
+							SimpleBossModsDB.cfg.general.animateIcons ~= false,
+							value
+						)
+					end
+				end,
+				0.5
 			)
 
 			local note = AG:Create("Label")
