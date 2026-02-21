@@ -1164,6 +1164,25 @@ local function applyBarFont(fs)
 	fs:SetShadowOffset(0, 0)
 end
 
+local function configureTooltipFrameMouse(frame)
+	if not frame then return end
+	frame:EnableMouse(true)
+	if frame.SetMouseMotionEnabled then
+		frame:SetMouseMotionEnabled(true)
+	end
+	if frame.SetMouseClickEnabled then
+		frame:SetMouseClickEnabled(false)
+	end
+	if frame.SetPassThroughButtons then
+		frame:SetPassThroughButtons("LeftButton", "RightButton", "MiddleButton", "Button4", "Button5")
+	elseif frame.SetPropagateMouseClicks then
+		frame:SetPropagateMouseClicks(true)
+	end
+	if frame.SetPropagateMouseMotion then
+		frame:SetPropagateMouseMotion(false)
+	end
+end
+
 M.applyIconFont = applyIconFont
 M.applyBarFont = applyBarFont
 
@@ -1218,14 +1237,11 @@ local function acquireIcon()
 		ind:SetFrameLevel(tf:GetFrameLevel() + 10)
 		f.indicatorsFrame = ind
 
-		f:EnableMouse(true)
-		if f.SetMouseClickEnabled then
-			f:SetMouseClickEnabled(false)
+			configureTooltipFrameMouse(f)
+			f:SetScript("OnEnter", iconTooltipOnEnter)
+			f:SetScript("OnLeave", hideEventTooltip)
+			f:SetScript("OnHide", hideEventTooltip)
 		end
-		f:SetScript("OnEnter", iconTooltipOnEnter)
-		f:SetScript("OnLeave", hideEventTooltip)
-		f:SetScript("OnHide", hideEventTooltip)
-	end
 
 	f:SetSize(L.ICON_SIZE, L.ICON_SIZE)
 	f:SetAlpha(1)
@@ -1235,6 +1251,13 @@ local function acquireIcon()
 	f.__sbmIconLayoutTargetX = nil
 	f.__sbmIconLayoutTargetY = nil
 	ensureFullBorder(f.main, L.ICON_BORDER_THICKNESS)
+	if f.cd then
+		f.cd:Clear()
+		f.cd:Hide()
+	end
+	if f.timeText then
+		f.timeText:SetText("")
+	end
 
 	f.cd:SetFrameLevel(f.main:GetFrameLevel() + 5)
 	if f.textOverlay then
@@ -1282,7 +1305,10 @@ local function releaseIcon(f)
 	end
 	f.tex:SetVertexColor(1, 1, 1, 1)
 	ensureFullBorder(f.main, L.ICON_BORDER_THICKNESS, 0, 0, 0, 1)
-	if f.cd then f.cd:Clear() end
+	if f.cd then
+		f.cd:Clear()
+		f.cd:Hide()
+	end
 	if f.timeText then f.timeText:SetText("") end
 	if f.pauseIcon then f.pauseIcon:Hide() end
 	if f.blockedIcon then f.blockedIcon:Hide() end
@@ -1300,13 +1326,10 @@ local function acquireBar()
 	local f = tremove(barPool)
 	if not f then
 		f = CreateFrame("Frame", nil, barsParent)
-		f:EnableMouse(true)
-		if f.SetMouseClickEnabled then
-			f:SetMouseClickEnabled(false)
-		end
-		f:SetScript("OnEnter", barTooltipOnEnter)
-		f:SetScript("OnLeave", hideEventTooltip)
-		f:SetScript("OnHide", hideEventTooltip)
+			configureTooltipFrameMouse(f)
+			f:SetScript("OnEnter", barTooltipOnEnter)
+			f:SetScript("OnLeave", hideEventTooltip)
+			f:SetScript("OnHide", hideEventTooltip)
 
 		local bg = f:CreateTexture(nil, "BACKGROUND")
 		bg:SetAllPoints()
@@ -1324,14 +1347,11 @@ local function acquireBar()
 		local iconFrame = CreateFrame("Frame", nil, leftFrame)
 		iconFrame:SetAllPoints()
 		f.iconFrame = iconFrame
-		iconFrame.__owner = f
-		iconFrame:EnableMouse(true)
-		if iconFrame.SetMouseClickEnabled then
-			iconFrame:SetMouseClickEnabled(false)
-		end
-		iconFrame:SetScript("OnEnter", barIconTooltipOnEnter)
-		iconFrame:SetScript("OnLeave", hideEventTooltip)
-		iconFrame:SetScript("OnHide", hideEventTooltip)
+			iconFrame.__owner = f
+			configureTooltipFrameMouse(iconFrame)
+			iconFrame:SetScript("OnEnter", barIconTooltipOnEnter)
+			iconFrame:SetScript("OnLeave", hideEventTooltip)
+			iconFrame:SetScript("OnHide", hideEventTooltip)
 
 		local icon = iconFrame:CreateTexture(nil, "ARTWORK")
 		icon:SetAllPoints()

@@ -16,9 +16,7 @@ end
 
 local layoutIconList = {}
 local layoutBarList = {}
-local Enum_EncounterTimelineEventSource = Enum and Enum.EncounterTimelineEventSource
 local Enum_EncounterTimelineEventState = Enum and Enum.EncounterTimelineEventState
-local EDIT_MODE_SOURCE_ID = (Enum_EncounterTimelineEventSource and Enum_EncounterTimelineEventSource.EditMode) or 2
 local EVENT_STATE_FINISHED = Enum_EncounterTimelineEventState and Enum_EncounterTimelineEventState.Finished
 local EVENT_STATE_CANCELED = Enum_EncounterTimelineEventState and Enum_EncounterTimelineEventState.Canceled
 
@@ -86,18 +84,6 @@ local function getIndicatorBarColor(rec)
 	return nil
 end
 
-local function isEditModeTimelineRec(rec)
-	if type(rec) ~= "table" then return false end
-	local eventInfo = rec.eventInfo
-	if type(eventInfo) ~= "table" then return false end
-	local source = eventInfo.source
-	if isSecretValue(source) then return false end
-	if source == EDIT_MODE_SOURCE_ID then
-		return true
-	end
-	return tonumber(source) == EDIT_MODE_SOURCE_ID
-end
-
 local function getTimelineBarColor(rec)
 	if type(rec) ~= "table" then return nil end
 	local eventInfo = rec.eventInfo
@@ -106,12 +92,6 @@ local function getTimelineBarColor(rec)
 	local indicatorR, indicatorG, indicatorB, indicatorA = getIndicatorBarColor(rec)
 	if indicatorR then
 		return indicatorR, indicatorG, indicatorB, indicatorA
-	end
-
-	-- Native Edit Mode test events are not encounter events, so SetEventColor
-	-- does not reliably drive their colors. Resolve them locally.
-	if isEditModeTimelineRec(rec) then
-		return L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A
 	end
 
 	local colorR, colorG, colorB, colorA, colorSecret = unpackColor(eventInfo.color or eventInfo.barColor)
@@ -175,36 +155,20 @@ local function getTimelineBarColor(rec)
 	return nil
 end
 
-local function colorNear(a, b, tolerance)
-	if type(a) ~= "number" or type(b) ~= "number" then
-		return false
+local function resolveAppliedBarColor(rec)
+	local r, g, b, a = getTimelineBarColor(rec)
+	if r then
+		return true, r, g, b, a or 1
 	end
-	return math.abs(a - b) <= (tolerance or 0.01)
-end
-
-local function isDefaultBarColor(r, g, b, a)
-	local defaultA = L.BAR_FG_A or 1
-	return colorNear(r, L.BAR_FG_R, 0.01)
-		and colorNear(g, L.BAR_FG_G, 0.01)
-		and colorNear(b, L.BAR_FG_B, 0.01)
-		and colorNear(a or 1, defaultA, 0.01)
+	return false, L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A or 1
 end
 
 local function getIconBorderColor(rec)
 	if not L.USE_ICON_BORDER_COLORS then
 		return nil
 	end
-	if rec and rec.isManual then
-		return nil
-	end
-	local r, g, b, a = getTimelineBarColor(rec)
-	if not r then
-		return nil
-	end
-	if isDefaultBarColor(r, g, b, a or 1) then
-		return nil
-	end
-	return r, g, b, a or 1
+	local _, r, g, b, a = resolveAppliedBarColor(rec)
+	return r, g, b, a
 end
 
 local QUEUED_LABEL = "Queued"
@@ -1028,6 +992,13 @@ function M:PlayTimelineIconOutro(rec)
 	self:StopIconLayoutMotion(icon, false)
 	self:StopIconFadeIn(icon, false)
 	self:ClearIconAnimation(icon)
+	if icon.cd then
+		icon.cd:Clear()
+		icon.cd:Hide()
+	end
+	if icon.timeText then
+		icon.timeText:SetText("")
+	end
 
 	local outroIcons = self._iconOutroIcons
 	if not outroIcons then
@@ -1486,7 +1457,10 @@ local function updateIconCountdownVisual(rec, now)
 			f.timeText:SetText(QUEUED_LABEL)
 			f.timeText._sbmStatus = QUEUED_LABEL
 		end
-		f.cd:Clear()
+		if f.cd then
+			f.cd:Clear()
+			f.cd:Hide()
+		end
 		return false
 	end
 
@@ -1497,13 +1471,22 @@ local function updateIconCountdownVisual(rec, now)
 	if type(rem) == "number" and rem > 0 then
 		f.timeText:SetText(U.formatTimeIcon(rem))
 		if rec.startTime and rec.duration and rec.duration > 0 and not isPaused and not isBlocked then
-			f.cd:SetCooldown(rec.startTime, rec.duration)
+			if f.cd then
+				f.cd:Show()
+				f.cd:SetCooldown(rec.startTime, rec.duration)
+			end
 		else
-			f.cd:Clear()
+			if f.cd then
+				f.cd:Clear()
+				f.cd:Hide()
+			end
 		end
 	else
 		f.timeText:SetText("")
-		f.cd:Clear()
+		if f.cd then
+			f.cd:Clear()
+			f.cd:Hide()
+		end
 	end
 
 	return rem ~= nil and not isPaused and not isBlocked
@@ -1863,16 +1846,7 @@ function M:updateRecord(eventID, eventInfo, remaining)
 
 		if rec.barFrame then
 			refreshBarLabelAndIcon(rec)
-			local r, g, b, a = nil, nil, nil, nil
-			if not rec.isManual then
-				r, g, b, a = getTimelineBarColor(rec)
-			end
-			local appliedR, appliedG, appliedB, appliedA
-			if r then
-				appliedR, appliedG, appliedB, appliedA = r, g, b, a or 1
-			else
-				appliedR, appliedG, appliedB, appliedA = L.BAR_FG_R, L.BAR_FG_G, L.BAR_FG_B, L.BAR_FG_A
-			end
+			local _, appliedR, appliedG, appliedB, appliedA = resolveAppliedBarColor(rec)
 			M.setBarFillFlat(rec.barFrame, appliedR, appliedG, appliedB, appliedA)
 			local bar = rec.barFrame
 			local keepUpdating = updateBarCountdownVisual(rec, nowForVisual)
