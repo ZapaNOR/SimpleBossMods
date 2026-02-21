@@ -269,26 +269,36 @@ function M:CollectTimelineEvents(now)
 				paused = (state == Enum_EncounterTimelineEventState.Paused)
 			end
 
-			-- remaining
-			local remaining = GetEventTimeRemaining(eventID)
+				-- remaining (can be secret in real encounters/phase transitions)
+				local remaining = GetEventTimeRemaining(eventID)
+				local remainingIsSecret = isSecretValue(remaining)
+				local remainingNum = nil
+				if not remainingIsSecret then
+					remainingNum = tonumber(remaining)
+				end
+				local hasRemainingData = remainingIsSecret or (type(remainingNum) == "number")
 
-			if not isTerminal and (queued or (type(remaining) == "number" and remaining > 0)) then
-				local rawSpellID = info.spellID or info.spellId
-				local spellID = nil
-				if isSecretValue(rawSpellID) then
-					spellID = rawSpellID
-				else
+				if not isTerminal and (queued or paused or blocked or hasRemainingData) then
+					local rawSpellID = info.spellID or info.spellId
+					local spellID = nil
+					if isSecretValue(rawSpellID) then
+						spellID = rawSpellID
+					else
 					local numericSpellID = tonumber(rawSpellID)
 					if type(numericSpellID) == "number" and numericSpellID > 0 then
 						spellID = numericSpellID
 					end
 				end
 
-				local encounterEventID = tonumber(info.encounterEventID or info.encounterEventId or info.eventID or info.eventId)
-				local fallbackLabel, fallbackSpellID, fallbackIconFileID = resolveEncounterEventFallback(encounterEventID)
-				if not spellID and fallbackSpellID then
-					spellID = fallbackSpellID
-				end
+					local rawEncounterEventID = info.encounterEventID or info.encounterEventId or info.eventID or info.eventId
+					local encounterEventID = nil
+					if not isSecretValue(rawEncounterEventID) then
+						encounterEventID = tonumber(rawEncounterEventID)
+					end
+					local fallbackLabel, fallbackSpellID, fallbackIconFileID = resolveEncounterEventFallback(encounterEventID)
+					if not spellID and fallbackSpellID then
+						spellID = fallbackSpellID
+					end
 				local displayName = resolveTimelineLabel(info, spellID)
 				if not isSecretValue(displayName) and displayName == "" and type(fallbackLabel) == "string" and fallbackLabel ~= "" then
 					displayName = fallbackLabel
@@ -308,8 +318,8 @@ function M:CollectTimelineEvents(now)
 					local eventColor = info.color
 
 					-- Store in array (faster than table.insert)
-					events[#events + 1] = {
-						id = eventID,
+						events[#events + 1] = {
+							id = eventID,
 						eventInfo = {
 							name = displayName,
 							spellName = info.spellName,
@@ -323,11 +333,11 @@ function M:CollectTimelineEvents(now)
 							color = eventColor,
 							state = state,
 						},
-						remaining = remaining,
-						isQueued = queued,
-						isPaused = paused,
-						isBlocked = blocked,
-					}
+							remaining = remainingIsSecret and remaining or remainingNum,
+							isQueued = queued,
+							isPaused = paused,
+							isBlocked = blocked,
+						}
 				end
 			end
 		end

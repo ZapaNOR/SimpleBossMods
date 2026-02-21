@@ -639,6 +639,23 @@ ef:SetScript("OnEvent", function(_, event, ...)
 		if M and M.ClearEncounterEventFallbackCache then
 			M:ClearEncounterEventFallbackCache()
 		end
+		if M and M.events and M.removeEvent then
+			local pendingRemovals = {}
+			for eventID, rec in pairs(M.events) do
+				if rec and not rec.isManual then
+					pendingRemovals[#pendingRemovals + 1] = eventID
+				end
+			end
+			for _, eventID in ipairs(pendingRemovals) do
+				M:removeEvent(eventID, "encounter-end", true)
+			end
+		end
+		if M and M.ClearTimelineAnimationState then
+			M:ClearTimelineAnimationState()
+		end
+		if M and M.LayoutAll then
+			M:LayoutAll()
+		end
 	elseif event == "ENCOUNTER_TIMELINE_LAYOUT_UPDATED"
 		or event == "ENCOUNTER_TIMELINE_STATE_UPDATED"
 		or event == "ENCOUNTER_TIMELINE_VIEW_ACTIVATED" then

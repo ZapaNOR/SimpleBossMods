@@ -1970,8 +1970,40 @@ function M:Tick()
 		end
 	end
 
+	local hasDetachedBarOutros = self:HasDetachedBarOutros()
+	local hasDetachedIconOutros = self:HasDetachedIconOutros()
+	if hasDetachedBarOutros or hasDetachedIconOutros then
+		local nowForOutroWatchdog = (GetTime and GetTime()) or 0
+		local state = self._outroWatchdogState
+		local barCount = self._barOutroCount or 0
+		local iconCount = self._iconOutroCount or 0
+		if not state then
+			self._outroWatchdogState = {
+				since = nowForOutroWatchdog,
+				barCount = barCount,
+				iconCount = iconCount,
+			}
+		else
+			if state.barCount ~= barCount or state.iconCount ~= iconCount then
+				state.since = nowForOutroWatchdog
+				state.barCount = barCount
+				state.iconCount = iconCount
+			elseif (nowForOutroWatchdog - (state.since or nowForOutroWatchdog)) >= 1.5 then
+				if self.ClearTimelineAnimationState then
+					self:ClearTimelineAnimationState()
+				end
+				self._layoutDirty = true
+				self._outroWatchdogState = nil
+				hasDetachedBarOutros = false
+				hasDetachedIconOutros = false
+			end
+		end
+	else
+		self._outroWatchdogState = nil
+	end
+
 	if self._layoutDirty then
-		if not self:HasDetachedBarOutros() and not self:HasDetachedIconOutros() then
+		if not hasDetachedBarOutros and not hasDetachedIconOutros then
 			self:LayoutAll()
 		end
 	end
