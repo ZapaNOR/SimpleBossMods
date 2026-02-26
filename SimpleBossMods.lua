@@ -1215,7 +1215,6 @@ function M:BuildEncounterEventCache()
 
 	local ok, eventList = pcall(C_EncounterEvents.GetEventList)
 	if ok and type(eventList) == "table" then
-		print("|cFF9CDF95Simple|rBossMods: Building encounter data...")
 		for _, eventID in ipairs(eventList) do
 			if type(eventID) == "number" then
 				local infoOk, info = pcall(C_EncounterEvents.GetEventInfo, eventID)

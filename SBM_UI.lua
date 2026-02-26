@@ -1149,6 +1149,8 @@ M.pools = pools
 
 local iconPool = pools.icon
 local barPool = pools.bar
+local tooltipMousePending = M.tooltipMousePending or setmetatable({}, { __mode = "k" })
+M.tooltipMousePending = tooltipMousePending
 
 local function applyIconFont(fs)
 	if not fs then return end
@@ -1173,6 +1175,10 @@ local function configureTooltipFrameMouse(frame)
 	if frame.SetMouseClickEnabled then
 		frame:SetMouseClickEnabled(false)
 	end
+	if InCombatLockdown and InCombatLockdown() then
+		tooltipMousePending[frame] = true
+		return
+	end
 	if frame.SetPassThroughButtons then
 		frame:SetPassThroughButtons("LeftButton", "RightButton", "MiddleButton", "Button4", "Button5")
 	elseif frame.SetPropagateMouseClicks then
@@ -1180,6 +1186,13 @@ local function configureTooltipFrameMouse(frame)
 	end
 	if frame.SetPropagateMouseMotion then
 		frame:SetPropagateMouseMotion(false)
+	end
+	tooltipMousePending[frame] = nil
+end
+
+function M:RefreshTooltipFrameMouse()
+	for frame in pairs(tooltipMousePending) do
+		configureTooltipFrameMouse(frame)
 	end
 end
 

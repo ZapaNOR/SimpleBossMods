@@ -11,6 +11,33 @@ local MANUAL_TIMER_IDS = {
 	["break"] = 9101002,
 }
 
+local function printSlashHelp()
+	print("|cFF9CDF95Simple|rBossMods: '|cFF9CDF95/sbm|r' for in-game configuration.")
+end
+
+local function getCurrentPatchKey()
+	local version, _, _, interfaceVersion = GetBuildInfo()
+	if type(version) == "string" and version ~= "" then
+		return version
+	end
+	if type(interfaceVersion) == "number" then
+		return tostring(interfaceVersion)
+	end
+	return "unknown"
+end
+
+local function maybePrintSlashHelp()
+	if type(SimpleBossModsDB) ~= "table" then
+		printSlashHelp()
+		return
+	end
+	local patchKey = getCurrentPatchKey()
+	if SimpleBossModsDB.lastSlashHelpPatch ~= patchKey then
+		SimpleBossModsDB.lastSlashHelpPatch = patchKey
+		printSlashHelp()
+	end
+end
+
 local function trim(s)
 	s = tostring(s or "")
 	s = s:gsub("^%s+", "")
@@ -594,6 +621,7 @@ ef:SetScript("OnEvent", function(_, event, ...)
 			SLASH_SIMPLEBOSSMODSPULL1 = "/pull"
 			SLASH_SIMPLEBOSSMODSBREAK1 = "/break"
 		end
+		maybePrintSlashHelp()
 	elseif event == "ADDON_LOADED" then
 		local name = ...
 		if name == "Blizzard_ChallengesUI" then
@@ -684,6 +712,9 @@ ef:SetScript("OnEvent", function(_, event, ...)
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		if M.StopCombatTimer then
 			M:StopCombatTimer()
+		end
+		if M.RefreshTooltipFrameMouse then
+			M:RefreshTooltipFrameMouse()
 		end
 		if M.EnsureEncounterEventCache then
 			M:EnsureEncounterEventCache()
@@ -864,5 +895,3 @@ end
 SlashCmdList["SIMPLEBOSSMODSBREAK"] = function(msg)
 	handleManualTimer("break", msg)
 end
-
-print("|cFF9CDF95Simple|rBossMods: '|cFF9CDF95/sbm|r' for in-game configuration.")
