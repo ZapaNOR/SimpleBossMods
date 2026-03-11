@@ -618,10 +618,10 @@ local function ensureFullBorder(owner, thickness, r, g, b, a)
 		local cg = g or 0
 		local cb = b or 0
 		local ca = a or 1
-		border.top:SetColorTexture(cr, cg, cb, ca)
-		border.bot:SetColorTexture(cr, cg, cb, ca)
-		border.left:SetColorTexture(cr, cg, cb, ca)
-		border.right:SetColorTexture(cr, cg, cb, ca)
+		border.top:SetVertexColor(cr, cg, cb, ca)
+		border.bot:SetVertexColor(cr, cg, cb, ca)
+		border.left:SetVertexColor(cr, cg, cb, ca)
+		border.right:SetVertexColor(cr, cg, cb, ca)
 	end
 
 	if bf.__fullBorder then
@@ -639,6 +639,7 @@ local function ensureFullBorder(owner, thickness, r, g, b, a)
 	local t = thickness or 1
 	local function line()
 		local tex = bf:CreateTexture(nil, "OVERLAY")
+		tex:SetColorTexture(1, 1, 1, 1)
 		return tex
 	end
 
