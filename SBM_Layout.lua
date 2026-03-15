@@ -18,34 +18,6 @@ local EVENT_STATE_CANCELED = Enum_EncounterTimelineEventState and Enum_Encounter
 
 local isSecretValue = U.isSecretValue
 
-local function unpackColor(color)
-	if type(color) ~= "table" then
-		return nil
-	end
-	local rawR = color.r or color[1]
-	local rawG = color.g or color[2]
-	local rawB = color.b or color[3]
-	local rawA = color.a or color[4] or 1
-	local hasSecret = isSecretValue(rawR) or isSecretValue(rawG) or isSecretValue(rawB) or isSecretValue(rawA)
-	if hasSecret then
-		if rawR ~= nil and rawG ~= nil and rawB ~= nil then
-			return rawR, rawG, rawB, rawA, true
-		end
-		return nil
-	end
-	local r = tonumber(rawR)
-	local g = tonumber(rawG)
-	local b = tonumber(rawB)
-	local a = tonumber(rawA)
-	if isSecretValue(r) or isSecretValue(g) or isSecretValue(b) or isSecretValue(a) then
-		return nil
-	end
-	if type(r) ~= "number" or type(g) ~= "number" or type(b) ~= "number" then
-		return nil
-	end
-	return U.clamp(r, 0, 1), U.clamp(g, 0, 1), U.clamp(b, 0, 1), U.clamp(a, 0, 1), false
-end
-
 local function getIndicatorBarColor(rec)
 	if type(rec) ~= "table" then return nil end
 	local eventInfo = rec.eventInfo
@@ -82,52 +54,6 @@ local function getTimelineBarColor(rec)
 	local indicatorR, indicatorG, indicatorB, indicatorA = getIndicatorBarColor(rec)
 	if indicatorR then
 		return indicatorR, indicatorG, indicatorB, indicatorA
-	end
-
-	local colorR, colorG, colorB, colorA, colorSecret = unpackColor(eventInfo.color or eventInfo.barColor)
-	local fromR, fromG, fromB, fromA, fromSecret = unpackColor(eventInfo.colorFrom)
-	local toR, toG, toB, toA, toSecret = unpackColor(eventInfo.colorTo)
-
-	if fromR and toR then
-		if fromSecret or toSecret then
-			return fromR, fromG, fromB, fromA
-		end
-		local rem = U.toNumberSafe(rec.remaining)
-		local window = U.toNumberSafe(rec._timelineColorStartRemaining)
-		if not window or window <= 0 then
-			window = tonumber(L.THRESHOLD_TO_BAR) or 0
-		end
-		if window > 0 and rem then
-			local shown = rem
-			if shown < 0 then shown = 0 end
-			if shown > window then shown = window end
-			local progress = (window - shown) / window
-			if progress < 0 then progress = 0 end
-			if progress > 1 then progress = 1 end
-			local r = (
-				fromR + (toR - fromR) * progress
-			)
-			local g = (
-				fromG + (toG - fromG) * progress
-			)
-			local b = (
-				fromB + (toB - fromB) * progress
-			)
-			local a = (
-				fromA + (toA - fromA) * progress
-			)
-			return r, g, b, a
-		end
-	end
-
-	if colorR then
-		return colorR, colorG, colorB, colorA
-	end
-	if fromR then
-		return fromR, fromG, fromB, fromA
-	end
-	if toR then
-		return toR, toG, toB, toA
 	end
 	return nil
 end
@@ -1699,32 +1625,6 @@ function M:updateRecord(eventID, eventInfo, remaining)
 		self:ensureBar(rec)
 	else
 		self:ensureIcon(rec)
-	end
-	if rec.barFrame and not rec.isManual then
-		local threshold = U.toNumberSafe(L.THRESHOLD_TO_BAR) or 0
-		local remainingNum = U.toNumberSafe(rec.remaining)
-		local startRemaining = U.toNumberSafe(rec._timelineColorStartRemaining)
-
-		if not hadBar then
-			startRemaining = remainingNum
-			if startRemaining and threshold > 0 and startRemaining > threshold then
-				startRemaining = threshold
-			end
-			if not startRemaining or startRemaining <= 0 then
-				startRemaining = (threshold > 0) and threshold or nil
-			end
-		elseif remainingNum and startRemaining and remainingNum > startRemaining then
-			startRemaining = remainingNum
-			if threshold > 0 and startRemaining > threshold then
-				startRemaining = threshold
-			end
-		elseif (not startRemaining or startRemaining <= 0) and threshold > 0 then
-			startRemaining = threshold
-		end
-
-		rec._timelineColorStartRemaining = startRemaining
-	else
-		rec._timelineColorStartRemaining = nil
 	end
 	if isNew or hadBar ~= (rec.barFrame ~= nil) or hadIcon ~= (rec.iconFrame ~= nil) then
 		self._layoutDirty = true
