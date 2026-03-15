@@ -9,6 +9,7 @@ local L = M.Live
 local U = M.Util
 local AG = LibStub and LibStub("AceGUI-3.0", true)
 local LSM = M.LSM or (LibStub and LibStub("LibSharedMedia-3.0", true))
+local AceSerializer = LibStub and LibStub("AceSerializer-3.0", true)
 local isGUIOpen = false
 
 local ANCHOR_POINT_OPTIONS = {
@@ -388,6 +389,111 @@ function M:ResetAllSettings()
 	if self.LayoutAll then
 		self:LayoutAll()
 	end
+end
+
+local function applyFullConfig()
+	if M.EnsureDefaults then M:EnsureDefaults() end
+	M.SyncLiveConfig()
+	if M.ApplyTimelineRecommendedMode then M:ApplyTimelineRecommendedMode() end
+	if M.UpdateIconsAnchorPosition then M:UpdateIconsAnchorPosition() end
+	if M.UpdateBarsAnchorPosition then M:UpdateBarsAnchorPosition() end
+	if M.UpdatePrivateAuraAnchor then M:UpdatePrivateAuraAnchor()
+	elseif M.UpdatePrivateAuraAnchorPosition then M:UpdatePrivateAuraAnchorPosition() end
+	if M.UpdatePrivateAuraFrames then M:UpdatePrivateAuraFrames() end
+	if M.UpdateCombatTimerAppearance then M:UpdateCombatTimerAppearance() end
+	if M.UpdateCombatTimerState then M:UpdateCombatTimerState() end
+	requestEncounterEventColorRefresh()
+	for id, rec in pairs(M.events or {}) do
+		M:updateRecord(id, rec.eventInfo, rec.remaining)
+	end
+	if M.Tick then M:Tick() end
+	if M.LayoutAll then M:LayoutAll() end
+end
+
+function M:ExportProfile()
+	if not AceSerializer then
+		print(ADDON_NAME .. ": AceSerializer not available.")
+		return
+	end
+	local serialized = AceSerializer:Serialize(SimpleBossModsDB.cfg)
+	if not serialized then
+		print(ADDON_NAME .. ": Failed to serialize profile.")
+		return
+	end
+
+	local frame = AG:Create("Window")
+	frame:SetTitle("Export Profile")
+	frame:SetWidth(500)
+	frame:SetHeight(400)
+	frame:SetLayout("Fill")
+
+	local editBox = AG:Create("MultiLineEditBox")
+	editBox:SetLabel("")
+	editBox:SetText(serialized)
+	editBox:SetFullWidth(true)
+	editBox:SetFullHeight(true)
+	editBox:DisableButton(true)
+	frame:AddChild(editBox)
+
+	C_Timer.After(0.05, function()
+		if editBox and editBox.editBox then
+			editBox.editBox:SetFocus()
+			editBox.editBox:HighlightText()
+		end
+	end)
+end
+
+function M:ImportProfile()
+	if not AceSerializer then
+		print(ADDON_NAME .. ": AceSerializer not available.")
+		return
+	end
+
+	local frame = AG:Create("Window")
+	frame:SetTitle("Import Profile")
+	frame:SetWidth(500)
+	frame:SetHeight(400)
+	frame:SetLayout("Flow")
+
+	local editBox = AG:Create("MultiLineEditBox")
+	editBox:SetLabel("Paste profile string below:")
+	editBox:SetText("")
+	editBox:SetFullWidth(true)
+	editBox:SetNumLines(18)
+	editBox:DisableButton(true)
+	frame:AddChild(editBox)
+
+	local importBtn = AG:Create("Button")
+	importBtn:SetText("Import")
+	importBtn:SetFullWidth(true)
+	importBtn:SetCallback("OnClick", function()
+		local text = editBox:GetText()
+		if not text or text:match("^%s*$") then
+			print(ADDON_NAME .. ": No profile string provided.")
+			return
+		end
+		local ok, data = AceSerializer:Deserialize(text)
+		if not ok or type(data) ~= "table" then
+			print(ADDON_NAME .. ": Invalid profile string.")
+			return
+		end
+		SimpleBossModsDB.cfg = deepCopyTable(data)
+		applyFullConfig()
+		frame:Release()
+		print(ADDON_NAME .. ": Profile imported successfully.")
+		if M._settingsTabGroup then
+			local selected = (M._settingsTabStatus and M._settingsTabStatus.selected) or "General"
+			if M._settingsTabStatus then M._settingsTabStatus.selected = nil end
+			M._settingsTabGroup:SelectTab(selected)
+		end
+	end)
+	frame:AddChild(importBtn)
+
+	C_Timer.After(0.05, function()
+		if editBox and editBox.editBox then
+			editBox.editBox:SetFocus()
+		end
+	end)
 end
 
 function M:ApplyGeneralConfig(gap, autoInsertKeystone)
@@ -1296,6 +1402,22 @@ function M:CreateSettingsWindow()
 				end
 			end)
 			maintenance:AddChild(resetAll)
+
+			local exportBtn = AG:Create("Button")
+			exportBtn:SetText("Export profile")
+			exportBtn:SetRelativeWidth(0.5)
+			exportBtn:SetCallback("OnClick", function()
+				if addon.ExportProfile then addon:ExportProfile() end
+			end)
+			maintenance:AddChild(exportBtn)
+
+			local importBtn = AG:Create("Button")
+			importBtn:SetText("Import profile")
+			importBtn:SetRelativeWidth(0.5)
+			importBtn:SetCallback("OnClick", function()
+				if addon.ImportProfile then addon:ImportProfile() end
+			end)
+			maintenance:AddChild(importBtn)
 		end
 
 		local function buildColorsTab(container)

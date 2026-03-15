@@ -889,7 +889,10 @@ local function pickGroupColor(mask, severity, groupKey)
 		return pickPlayerRoleColor(mask)
 	end
 	if groupKey == "severity" then
-		return pickSeverityColor(severity)
+		if L.USE_SEVERITY_COLORS ~= false then
+			return pickSeverityColor(severity)
+		end
+		return nil
 	end
 	local keys = GROUP_INDICATORS[groupKey]
 	if not keys then
