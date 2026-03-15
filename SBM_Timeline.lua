@@ -18,15 +18,8 @@ local GetEventTimeRemaining = ET.GetEventTimeRemaining
 local Enum_EncounterTimelineEventState = Enum and Enum.EncounterTimelineEventState
 local Enum_EncounterTimelineTrack = Enum and Enum.EncounterTimelineTrack
 local encounterEventFallbackCache = {}
-local wipeTable = _G.wipe or function(t)
-	for k in pairs(t) do
-		t[k] = nil
-	end
-end
-
-local function isSecretValue(value)
-	return type(issecretvalue) == "function" and issecretvalue(value)
-end
+local wipeTable = M.Util.wipe
+local isSecretValue = M.Util.isSecretValue
 
 local function getTimelineEventList()
 	if type(GetEventList) == "function" then

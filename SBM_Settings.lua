@@ -276,6 +276,70 @@ local function refreshBarMirrorAndIndicators()
 end
 
 -- =========================
+-- Factories
+-- =========================
+local function createAnchorApplySet(prefix, sectionKey, updateFnName, posName)
+	local function update()
+		M.SyncLiveConfig()
+		if M[updateFnName] then M[updateFnName](M) end
+	end
+	M["Apply" .. prefix .. "AnchorFrom"] = function(self, point)
+		if type(point) == "string" and point ~= "" then
+			SimpleBossModsDB.cfg[sectionKey].anchorFrom = point
+		end
+		update()
+	end
+	M["Apply" .. prefix .. "AnchorTo"] = function(self, point)
+		if type(point) == "string" and point ~= "" then
+			SimpleBossModsDB.cfg[sectionKey].anchorTo = point
+		end
+		update()
+	end
+	M["Apply" .. prefix .. "AnchorParent"] = function(self, parentName)
+		if type(parentName) == "string" and parentName ~= "" then
+			SimpleBossModsDB.cfg[sectionKey].anchorParent = parentName
+		end
+		SimpleBossModsDB.cfg[sectionKey].customParent = ""
+		update()
+	end
+	M["Apply" .. prefix .. "CustomParent"] = function(self, name)
+		if type(name) ~= "string" then name = "" end
+		name = name:gsub("^%s+", ""):gsub("%s+$", "")
+		SimpleBossModsDB.cfg[sectionKey].customParent = name
+		update()
+	end
+	M[posName] = function(self, x, y)
+		local sec = SimpleBossModsDB.cfg[sectionKey]
+		sec.x = tonumber(x) or sec.x or 0
+		sec.y = tonumber(y) or sec.y or 0
+		update()
+	end
+end
+
+createAnchorApplySet("Icon", "icons", "UpdateIconsAnchorPosition", "ApplyIconAnchorPosition")
+createAnchorApplySet("Bar", "bars", "UpdateBarsAnchorPosition", "ApplyBarAnchorPosition")
+createAnchorApplySet("PrivateAura", "privateAuras", "UpdatePrivateAuraAnchorPosition", "ApplyPrivateAuraPosition")
+createAnchorApplySet("CombatTimer", "combatTimer", "UpdateCombatTimerAppearance", "ApplyCombatTimerPosition")
+
+local function createColorUseToggle(configKey, skipColorRefresh, skipTick)
+	return function(self, enabled)
+		SimpleBossModsDB.cfg.general[configKey] = enabled and true or false
+		M.SyncLiveConfig()
+		if not skipColorRefresh then requestEncounterEventColorRefresh() end
+		if not skipTick and self.Tick then self:Tick() end
+		if self.LayoutAll then self:LayoutAll() end
+	end
+end
+
+M.ApplyUseDispelColors = createColorUseToggle("useDispelColors")
+M.ApplyUseRoleColors = createColorUseToggle("useRoleColors")
+M.ApplyUseOtherColors = createColorUseToggle("useOtherColors")
+M.ApplyUsePlayerRoleColor = createColorUseToggle("usePlayerRoleColor")
+M.ApplyUseSeverityColors = createColorUseToggle("useSeverityColors")
+M.ApplyUseIconBorderColors = createColorUseToggle("useIconBorderColors", true)
+M.ApplyUseCustomPlayerRoleColor = createColorUseToggle("useCustomPlayerRoleColor", false, true)
+
+-- =========================
 -- Apply config live
 -- =========================
 function M:ResetAllSettings()
@@ -292,8 +356,6 @@ function M:ResetAllSettings()
 	end
 	if self.ApplyTimelineRecommendedMode then
 		self:ApplyTimelineRecommendedMode()
-	elseif self.ApplyTimelineConnectorMode then
-		self:ApplyTimelineConnectorMode()
 	end
 	if self.UpdateIconsAnchorPosition then
 		self:UpdateIconsAnchorPosition()
@@ -362,142 +424,39 @@ function M:ApplyIndicatorPriorityGroups(groups)
 	end
 end
 
-function M:ApplyPriorityPresetIndicators()
+local function applyPriorityPreset(self, order, flags)
 	local gc = SimpleBossModsDB.cfg.general
-	local defaults = M.Defaults.cfg.general
-	local order = {
-		"playerRole",
-		"dispels",
-		"roles",
-		"other",
-		"severity",
-	}
 	gc.indicatorPriorityGroups = (type(M.NormalizeIndicatorPriorityGroups) == "function")
 		and M.NormalizeIndicatorPriorityGroups(order)
 		or order
-	gc.useDispelColors = defaults.useDispelColors ~= false
-	gc.useRoleColors = defaults.useRoleColors ~= false
-	gc.useOtherColors = defaults.useOtherColors ~= false
-	gc.usePlayerRoleColor = defaults.usePlayerRoleColor ~= false
-	gc.useSeverityColors = defaults.useSeverityColors ~= false
+	gc.useDispelColors = flags.dispel
+	gc.useRoleColors = flags.role
+	gc.useOtherColors = flags.other
+	gc.usePlayerRoleColor = flags.playerRole
+	gc.useSeverityColors = flags.severity
 
 	M.SyncLiveConfig()
 	requestEncounterEventColorRefresh()
-	if self.Tick then
-		self:Tick()
-	end
-	if self.LayoutAll then
-		self:LayoutAll()
-	end
+	if self.Tick then self:Tick() end
+	if self.LayoutAll then self:LayoutAll() end
+end
+
+function M:ApplyPriorityPresetIndicators()
+	local d = M.Defaults.cfg.general
+	applyPriorityPreset(self,
+		{ "playerRole", "dispels", "roles", "other", "severity" },
+		{ dispel = d.useDispelColors ~= false, role = d.useRoleColors ~= false, other = d.useOtherColors ~= false, playerRole = d.usePlayerRoleColor ~= false, severity = d.useSeverityColors ~= false }
+	)
 end
 
 function M:ApplyPriorityPresetSeverity()
-	local gc = SimpleBossModsDB.cfg.general
-	local order = {
-		"severity",
-		"dispels",
-		"roles",
-		"other",
-		"playerRole",
-	}
-	gc.indicatorPriorityGroups = (type(M.NormalizeIndicatorPriorityGroups) == "function")
-		and M.NormalizeIndicatorPriorityGroups(order)
-		or order
-	gc.useDispelColors = false
-	gc.useRoleColors = false
-	gc.useOtherColors = false
-	gc.usePlayerRoleColor = false
-	gc.useSeverityColors = true
-
-	M.SyncLiveConfig()
-	requestEncounterEventColorRefresh()
-	if self.Tick then
-		self:Tick()
-	end
-	if self.LayoutAll then
-		self:LayoutAll()
-	end
+	applyPriorityPreset(self,
+		{ "severity", "dispels", "roles", "other", "playerRole" },
+		{ dispel = false, role = false, other = false, playerRole = false, severity = true }
+	)
 end
 
-function M:ApplyUseDispelColors(enabled)
-	SimpleBossModsDB.cfg.general.useDispelColors = enabled and true or false
-	M.SyncLiveConfig()
-	requestEncounterEventColorRefresh()
-	if self.Tick then
-		self:Tick()
-	end
-	if self.LayoutAll then
-		self:LayoutAll()
-	end
-end
-
-function M:ApplyUseRoleColors(enabled)
-	SimpleBossModsDB.cfg.general.useRoleColors = enabled and true or false
-	M.SyncLiveConfig()
-	requestEncounterEventColorRefresh()
-	if self.Tick then
-		self:Tick()
-	end
-	if self.LayoutAll then
-		self:LayoutAll()
-	end
-end
-
-function M:ApplyUseOtherColors(enabled)
-	SimpleBossModsDB.cfg.general.useOtherColors = enabled and true or false
-	M.SyncLiveConfig()
-	requestEncounterEventColorRefresh()
-	if self.Tick then
-		self:Tick()
-	end
-	if self.LayoutAll then
-		self:LayoutAll()
-	end
-end
-
-function M:ApplyUsePlayerRoleColor(enabled)
-	SimpleBossModsDB.cfg.general.usePlayerRoleColor = enabled and true or false
-	M.SyncLiveConfig()
-	requestEncounterEventColorRefresh()
-	if self.Tick then
-		self:Tick()
-	end
-	if self.LayoutAll then
-		self:LayoutAll()
-	end
-end
-
-function M:ApplyUseSeverityColors(enabled)
-	SimpleBossModsDB.cfg.general.useSeverityColors = enabled and true or false
-	M.SyncLiveConfig()
-	requestEncounterEventColorRefresh()
-	if self.Tick then
-		self:Tick()
-	end
-	if self.LayoutAll then
-		self:LayoutAll()
-	end
-end
-
-function M:ApplyUseIconBorderColors(enabled)
-	SimpleBossModsDB.cfg.general.useIconBorderColors = enabled and true or false
-	M.SyncLiveConfig()
-	if self.Tick then
-		self:Tick()
-	end
-	if self.LayoutAll then
-		self:LayoutAll()
-	end
-end
-
-function M:ApplyUseCustomPlayerRoleColor(enabled)
-	SimpleBossModsDB.cfg.general.useCustomPlayerRoleColor = enabled and true or false
-	M.SyncLiveConfig()
-	requestEncounterEventColorRefresh()
-	if self.LayoutAll then
-		self:LayoutAll()
-	end
-end
+-- Color use toggles generated by createColorUseToggle above
 
 function M:ApplyCustomPlayerRoleColor(r, g, b, a)
 	local crc = SimpleBossModsDB.cfg.general.customPlayerRoleColor or {}
@@ -519,8 +478,6 @@ function M:ApplyGeneralTimelineRecommendedSettings(enabled)
 	M.SyncLiveConfig()
 	if self.ApplyTimelineRecommendedMode then
 		self:ApplyTimelineRecommendedMode()
-	elseif self.ApplyTimelineConnectorMode then
-		self:ApplyTimelineConnectorMode()
 	end
 	if not enabled then
 		local timelineFrame = _G.EncounterTimeline
@@ -655,62 +612,7 @@ function M:ApplyIconGrowDirection(dir)
 	self:LayoutAll()
 end
 
-function M:ApplyIconAnchorFrom(point)
-	local ic = SimpleBossModsDB.cfg.icons
-	if type(point) == "string" and point ~= "" then
-		ic.anchorFrom = point
-	end
-	M.SyncLiveConfig()
-	if M.UpdateIconsAnchorPosition then
-		M:UpdateIconsAnchorPosition()
-	end
-end
-
-function M:ApplyIconAnchorTo(point)
-	local ic = SimpleBossModsDB.cfg.icons
-	if type(point) == "string" and point ~= "" then
-		ic.anchorTo = point
-	end
-	M.SyncLiveConfig()
-	if M.UpdateIconsAnchorPosition then
-		M:UpdateIconsAnchorPosition()
-	end
-end
-
-function M:ApplyIconAnchorParent(parentName)
-	local ic = SimpleBossModsDB.cfg.icons
-	if type(parentName) == "string" and parentName ~= "" then
-		ic.anchorParent = parentName
-	end
-	ic.customParent = ""
-	M.SyncLiveConfig()
-	if M.UpdateIconsAnchorPosition then
-		M:UpdateIconsAnchorPosition()
-	end
-end
-
-function M:ApplyIconCustomParent(name)
-	local ic = SimpleBossModsDB.cfg.icons
-	if type(name) ~= "string" then
-		name = ""
-	end
-	name = name:gsub("^%s+", ""):gsub("%s+$", "")
-	ic.customParent = name
-	M.SyncLiveConfig()
-	if M.UpdateIconsAnchorPosition then
-		M:UpdateIconsAnchorPosition()
-	end
-end
-
-function M:ApplyIconAnchorPosition(x, y)
-	local ic = SimpleBossModsDB.cfg.icons
-	ic.x = tonumber(x) or ic.x or 0
-	ic.y = tonumber(y) or ic.y or 0
-	M.SyncLiveConfig()
-	if M.UpdateIconsAnchorPosition then
-		M:UpdateIconsAnchorPosition()
-	end
-end
+-- Icon anchor functions generated by createAnchorApplySet above
 
 function M:ApplyBarGrowDirection(dir)
 	local bc = SimpleBossModsDB.cfg.bars
@@ -747,62 +649,7 @@ function M:ApplyBarFillDirection(dir)
 	refreshBarMirrorAndIndicators()
 end
 
-function M:ApplyBarAnchorFrom(point)
-	local bc = SimpleBossModsDB.cfg.bars
-	if type(point) == "string" and point ~= "" then
-		bc.anchorFrom = point
-	end
-	M.SyncLiveConfig()
-	if M.UpdateBarsAnchorPosition then
-		M:UpdateBarsAnchorPosition()
-	end
-end
-
-function M:ApplyBarAnchorTo(point)
-	local bc = SimpleBossModsDB.cfg.bars
-	if type(point) == "string" and point ~= "" then
-		bc.anchorTo = point
-	end
-	M.SyncLiveConfig()
-	if M.UpdateBarsAnchorPosition then
-		M:UpdateBarsAnchorPosition()
-	end
-end
-
-function M:ApplyBarAnchorParent(parentName)
-	local bc = SimpleBossModsDB.cfg.bars
-	if type(parentName) == "string" and parentName ~= "" then
-		bc.anchorParent = parentName
-	end
-	bc.customParent = ""
-	M.SyncLiveConfig()
-	if M.UpdateBarsAnchorPosition then
-		M:UpdateBarsAnchorPosition()
-	end
-end
-
-function M:ApplyBarCustomParent(name)
-	local bc = SimpleBossModsDB.cfg.bars
-	if type(name) ~= "string" then
-		name = ""
-	end
-	name = name:gsub("^%s+", ""):gsub("%s+$", "")
-	bc.customParent = name
-	M.SyncLiveConfig()
-	if M.UpdateBarsAnchorPosition then
-		M:UpdateBarsAnchorPosition()
-	end
-end
-
-function M:ApplyBarAnchorPosition(x, y)
-	local bc = SimpleBossModsDB.cfg.bars
-	bc.x = tonumber(x) or bc.x or 0
-	bc.y = tonumber(y) or bc.y or 0
-	M.SyncLiveConfig()
-	if M.UpdateBarsAnchorPosition then
-		M:UpdateBarsAnchorPosition()
-	end
-end
+-- Bar anchor functions generated by createAnchorApplySet above
 
 function M:ApplyBarConfig(width, height, fontSize, borderThickness)
 	local bc = SimpleBossModsDB.cfg.bars
@@ -1031,62 +878,7 @@ function M:ApplyPrivateAuraEnabled(enabled)
 	end
 end
 
-function M:ApplyPrivateAuraPosition(x, y)
-	local pc = SimpleBossModsDB.cfg.privateAuras
-	pc.x = tonumber(x) or pc.x or 0
-	pc.y = tonumber(y) or pc.y or 0
-	M.SyncLiveConfig()
-	if M.UpdatePrivateAuraAnchorPosition then
-		M:UpdatePrivateAuraAnchorPosition()
-	end
-end
-
-function M:ApplyPrivateAuraAnchorFrom(point)
-	local pc = SimpleBossModsDB.cfg.privateAuras
-	if type(point) == "string" and point ~= "" then
-		pc.anchorFrom = point
-	end
-	M.SyncLiveConfig()
-	if M.UpdatePrivateAuraAnchorPosition then
-		M:UpdatePrivateAuraAnchorPosition()
-	end
-end
-
-function M:ApplyPrivateAuraAnchorTo(point)
-	local pc = SimpleBossModsDB.cfg.privateAuras
-	if type(point) == "string" and point ~= "" then
-		pc.anchorTo = point
-	end
-	M.SyncLiveConfig()
-	if M.UpdatePrivateAuraAnchorPosition then
-		M:UpdatePrivateAuraAnchorPosition()
-	end
-end
-
-function M:ApplyPrivateAuraAnchorParent(parentName)
-	local pc = SimpleBossModsDB.cfg.privateAuras
-	if type(parentName) == "string" and parentName ~= "" then
-		pc.anchorParent = parentName
-	end
-	pc.customParent = ""
-	M.SyncLiveConfig()
-	if M.UpdatePrivateAuraAnchorPosition then
-		M:UpdatePrivateAuraAnchorPosition()
-	end
-end
-
-function M:ApplyPrivateAuraCustomParent(name)
-	local pc = SimpleBossModsDB.cfg.privateAuras
-	if type(name) ~= "string" then
-		name = ""
-	end
-	name = name:gsub("^%s+", ""):gsub("%s+$", "")
-	pc.customParent = name
-	M.SyncLiveConfig()
-	if M.UpdatePrivateAuraAnchorPosition then
-		M:UpdatePrivateAuraAnchorPosition()
-	end
-end
+-- PrivateAura anchor functions generated by createAnchorApplySet above
 
 -- =========================
 -- Combat Timer config
@@ -1125,100 +917,29 @@ function M:ApplyCombatTimerFontSize(size)
 	end
 end
 
-function M:ApplyCombatTimerPosition(x, y)
-	local ct = SimpleBossModsDB.cfg.combatTimer
-	ct.x = tonumber(x) or ct.x or 0
-	ct.y = tonumber(y) or ct.y or 0
-	M.SyncLiveConfig()
-	if M.UpdateCombatTimerAppearance then
-		M:UpdateCombatTimerAppearance()
-	end
-end
+-- CombatTimer anchor functions generated by createAnchorApplySet above
 
-function M:ApplyCombatTimerAnchorFrom(point)
+local function applyCombatTimerColorField(colorKey, r, g, b, a, defR, defG, defB, defA)
 	local ct = SimpleBossModsDB.cfg.combatTimer
-	if type(point) == "string" and point ~= "" then
-		ct.anchorFrom = point
-	end
+	ct[colorKey] = ct[colorKey] or {}
+	ct[colorKey].r = U.clamp(tonumber(r) or defR or 0, 0, 1)
+	ct[colorKey].g = U.clamp(tonumber(g) or defG or 0, 0, 1)
+	ct[colorKey].b = U.clamp(tonumber(b) or defB or 0, 0, 1)
+	ct[colorKey].a = U.clamp(tonumber(a) or defA or 1, 0, 1)
 	M.SyncLiveConfig()
-	if M.UpdateCombatTimerAppearance then
-		M:UpdateCombatTimerAppearance()
-	end
-end
-
-function M:ApplyCombatTimerAnchorTo(point)
-	local ct = SimpleBossModsDB.cfg.combatTimer
-	if type(point) == "string" and point ~= "" then
-		ct.anchorTo = point
-	end
-	M.SyncLiveConfig()
-	if M.UpdateCombatTimerAppearance then
-		M:UpdateCombatTimerAppearance()
-	end
-end
-
-function M:ApplyCombatTimerAnchorParent(parentName)
-	local ct = SimpleBossModsDB.cfg.combatTimer
-	if type(parentName) == "string" and parentName ~= "" then
-		ct.anchorParent = parentName
-	end
-	ct.customParent = ""
-	M.SyncLiveConfig()
-	if M.UpdateCombatTimerAppearance then
-		M:UpdateCombatTimerAppearance()
-	end
-end
-
-function M:ApplyCombatTimerCustomParent(name)
-	local ct = SimpleBossModsDB.cfg.combatTimer
-	if type(name) ~= "string" then
-		name = ""
-	end
-	name = name:gsub("^%s+", ""):gsub("%s+$", "")
-	ct.customParent = name
-	M.SyncLiveConfig()
-	if M.UpdateCombatTimerAppearance then
-		M:UpdateCombatTimerAppearance()
-	end
+	if M.UpdateCombatTimerAppearance then M:UpdateCombatTimerAppearance() end
 end
 
 function M:ApplyCombatTimerColor(r, g, b, a)
-	local ct = SimpleBossModsDB.cfg.combatTimer
-	ct.color = ct.color or {}
-	ct.color.r = U.clamp(tonumber(r) or L.COMBAT_TIMER_COLOR_R or 1, 0, 1)
-	ct.color.g = U.clamp(tonumber(g) or L.COMBAT_TIMER_COLOR_G or 1, 0, 1)
-	ct.color.b = U.clamp(tonumber(b) or L.COMBAT_TIMER_COLOR_B or 1, 0, 1)
-	ct.color.a = U.clamp(tonumber(a) or L.COMBAT_TIMER_COLOR_A or 1, 0, 1)
-	M.SyncLiveConfig()
-	if M.UpdateCombatTimerAppearance then
-		M:UpdateCombatTimerAppearance()
-	end
+	applyCombatTimerColorField("color", r, g, b, a, L.COMBAT_TIMER_COLOR_R or 1, L.COMBAT_TIMER_COLOR_G or 1, L.COMBAT_TIMER_COLOR_B or 1, L.COMBAT_TIMER_COLOR_A or 1)
 end
 
 function M:ApplyCombatTimerBorderColor(r, g, b, a)
-	local ct = SimpleBossModsDB.cfg.combatTimer
-	ct.borderColor = ct.borderColor or {}
-	ct.borderColor.r = U.clamp(tonumber(r) or L.COMBAT_TIMER_BORDER_R or 0, 0, 1)
-	ct.borderColor.g = U.clamp(tonumber(g) or L.COMBAT_TIMER_BORDER_G or 0, 0, 1)
-	ct.borderColor.b = U.clamp(tonumber(b) or L.COMBAT_TIMER_BORDER_B or 0, 0, 1)
-	ct.borderColor.a = U.clamp(tonumber(a) or L.COMBAT_TIMER_BORDER_A or 1, 0, 1)
-	M.SyncLiveConfig()
-	if M.UpdateCombatTimerAppearance then
-		M:UpdateCombatTimerAppearance()
-	end
+	applyCombatTimerColorField("borderColor", r, g, b, a, L.COMBAT_TIMER_BORDER_R, L.COMBAT_TIMER_BORDER_G, L.COMBAT_TIMER_BORDER_B, L.COMBAT_TIMER_BORDER_A or 1)
 end
 
 function M:ApplyCombatTimerBgColor(r, g, b, a)
-	local ct = SimpleBossModsDB.cfg.combatTimer
-	ct.bgColor = ct.bgColor or {}
-	ct.bgColor.r = U.clamp(tonumber(r) or L.COMBAT_TIMER_BG_R or 0, 0, 1)
-	ct.bgColor.g = U.clamp(tonumber(g) or L.COMBAT_TIMER_BG_G or 0, 0, 1)
-	ct.bgColor.b = U.clamp(tonumber(b) or L.COMBAT_TIMER_BG_B or 0, 0, 1)
-	ct.bgColor.a = U.clamp(tonumber(a) or L.COMBAT_TIMER_BG_A or 1, 0, 1)
-	M.SyncLiveConfig()
-	if M.UpdateCombatTimerAppearance then
-		M:UpdateCombatTimerAppearance()
-	end
+	applyCombatTimerColorField("bgColor", r, g, b, a, L.COMBAT_TIMER_BG_R, L.COMBAT_TIMER_BG_G, L.COMBAT_TIMER_BG_B, L.COMBAT_TIMER_BG_A or 1)
 end
 
 -- =========================
@@ -1439,6 +1160,65 @@ function M:CreateSettingsWindow()
 		end)
 		container:AddChild(cp)
 		return cp
+	end
+
+	local function buildAnchorSection(container, anchorParentMap, sectionKey, applyPrefix, posName)
+		local sec = SimpleBossModsDB.cfg[sectionKey]
+		local anchor = AG:Create("InlineGroup")
+		anchor:SetTitle("Anchor")
+		anchor:SetLayout("Flow")
+		anchor:SetFullWidth(true)
+		container:AddChild(anchor)
+
+		local customParentWidget
+
+		addDropdown(anchor, "Anchor From",
+			ANCHOR_POINT_MAP,
+			function() return SimpleBossModsDB.cfg[sectionKey].anchorFrom end,
+			function(v) addon["Apply" .. applyPrefix .. "AnchorFrom"](addon, v) end,
+			0.33
+		)
+
+		addDropdown(anchor, "Anchor To Parent",
+			anchorParentMap,
+			function() return SimpleBossModsDB.cfg[sectionKey].anchorParent end,
+			function(v)
+				addon["Apply" .. applyPrefix .. "AnchorParent"](addon, v)
+				if customParentWidget then
+					customParentWidget:SetText(SimpleBossModsDB.cfg[sectionKey].customParent or "")
+				end
+			end,
+			0.33
+		)
+
+		addDropdown(anchor, "Anchor To",
+			ANCHOR_POINT_MAP,
+			function() return SimpleBossModsDB.cfg[sectionKey].anchorTo end,
+			function(v) addon["Apply" .. applyPrefix .. "AnchorTo"](addon, v) end,
+			0.33
+		)
+
+		customParentWidget = AG:Create("EditBox")
+		customParentWidget:SetLabel("Custom Parent (optional)")
+		customParentWidget:SetText(SimpleBossModsDB.cfg[sectionKey].customParent or "")
+		customParentWidget:SetFullWidth(true)
+		customParentWidget:SetCallback("OnEnterPressed", function(widget, _, text)
+			addon["Apply" .. applyPrefix .. "CustomParent"](addon, text)
+			widget:SetText(SimpleBossModsDB.cfg[sectionKey].customParent or "")
+		end)
+		anchor:AddChild(customParentWidget)
+
+		addNumberInput(anchor, "X Offset",
+			function() return SimpleBossModsDB.cfg[sectionKey].x or 0 end,
+			function(v) addon[posName](addon, v, SimpleBossModsDB.cfg[sectionKey].y or 0) end,
+			0.5
+		)
+
+		addNumberInput(anchor, "Y Offset",
+			function() return SimpleBossModsDB.cfg[sectionKey].y or 0 end,
+			function(v) addon[posName](addon, SimpleBossModsDB.cfg[sectionKey].x or 0, v) end,
+			0.5
+		)
 	end
 
 		local function buildGeneralTab(container)
@@ -1820,6 +1600,21 @@ function M:CreateSettingsWindow()
 			end,
 			1
 		)
+
+		local queues = AG:Create("InlineGroup")
+		queues:SetTitle("Queue Timers")
+		queues:SetLayout("Flow")
+		queues:SetFullWidth(true)
+		container:AddChild(queues)
+
+		addCheckBox(queues, "Show Queue Pop Timers",
+			function() return SimpleBossModsDB.cfg.general.queueTimers ~= false end,
+			function(v)
+				SimpleBossModsDB.cfg.general.queueTimers = v
+				M.SyncLiveConfig()
+			end,
+			1
+		)
 	end
 
 	local function buildIconsTab(container)
@@ -1850,62 +1645,7 @@ function M:CreateSettingsWindow()
 		end
 
 		local _, iconAnchorParentMap = buildAnchorParentLists(SimpleBossModsDB.cfg.icons.anchorParent)
-
-		local anchor = AG:Create("InlineGroup")
-		anchor:SetTitle("Anchor")
-		anchor:SetLayout("Flow")
-		anchor:SetFullWidth(true)
-		container:AddChild(anchor)
-
-		local customParent
-
-		addDropdown(anchor, "Anchor From",
-			ANCHOR_POINT_MAP,
-			function() return SimpleBossModsDB.cfg.icons.anchorFrom end,
-			function(v) addon:ApplyIconAnchorFrom(v) end,
-			0.33
-		)
-
-		addDropdown(anchor, "Anchor To Parent",
-			iconAnchorParentMap,
-			function() return SimpleBossModsDB.cfg.icons.anchorParent end,
-			function(v)
-				addon:ApplyIconAnchorParent(v)
-				if customParent then
-					customParent:SetText(SimpleBossModsDB.cfg.icons.customParent or "")
-				end
-			end,
-			0.33
-		)
-
-		addDropdown(anchor, "Anchor To",
-			ANCHOR_POINT_MAP,
-			function() return SimpleBossModsDB.cfg.icons.anchorTo end,
-			function(v) addon:ApplyIconAnchorTo(v) end,
-			0.33
-		)
-
-		customParent = AG:Create("EditBox")
-		customParent:SetLabel("Custom Parent (optional)")
-		customParent:SetText(SimpleBossModsDB.cfg.icons.customParent or "")
-		customParent:SetFullWidth(true)
-		customParent:SetCallback("OnEnterPressed", function(widget, _, text)
-			addon:ApplyIconCustomParent(text)
-			widget:SetText(SimpleBossModsDB.cfg.icons.customParent or "")
-		end)
-		anchor:AddChild(customParent)
-
-		addNumberInput(anchor, "X Offset",
-			function() return SimpleBossModsDB.cfg.icons.x or 0 end,
-			function(v) addon:ApplyIconAnchorPosition(v, SimpleBossModsDB.cfg.icons.y or 0) end,
-			0.5
-		)
-
-		addNumberInput(anchor, "Y Offset",
-			function() return SimpleBossModsDB.cfg.icons.y or 0 end,
-			function(v) addon:ApplyIconAnchorPosition(SimpleBossModsDB.cfg.icons.x or 0, v) end,
-			0.5
-		)
+		buildAnchorSection(container, iconAnchorParentMap, "icons", "Icon", "ApplyIconAnchorPosition")
 
 		local icons = AG:Create("InlineGroup")
 		icons:SetTitle("Layout")
@@ -1988,62 +1728,7 @@ function M:CreateSettingsWindow()
 
 	local function buildBarsTab(container)
 		local _, barsAnchorParentMap = buildAnchorParentLists(SimpleBossModsDB.cfg.bars.anchorParent)
-
-		local anchor = AG:Create("InlineGroup")
-		anchor:SetTitle("Anchor")
-		anchor:SetLayout("Flow")
-		anchor:SetFullWidth(true)
-		container:AddChild(anchor)
-
-		local customParent
-
-		addDropdown(anchor, "Anchor From",
-			ANCHOR_POINT_MAP,
-			function() return SimpleBossModsDB.cfg.bars.anchorFrom end,
-			function(v) addon:ApplyBarAnchorFrom(v) end,
-			0.33
-		)
-
-		addDropdown(anchor, "Anchor To Parent",
-			barsAnchorParentMap,
-			function() return SimpleBossModsDB.cfg.bars.anchorParent end,
-			function(v)
-				addon:ApplyBarAnchorParent(v)
-				if customParent then
-					customParent:SetText(SimpleBossModsDB.cfg.bars.customParent or "")
-				end
-			end,
-			0.33
-		)
-
-		addDropdown(anchor, "Anchor To",
-			ANCHOR_POINT_MAP,
-			function() return SimpleBossModsDB.cfg.bars.anchorTo end,
-			function(v) addon:ApplyBarAnchorTo(v) end,
-			0.33
-		)
-
-		customParent = AG:Create("EditBox")
-		customParent:SetLabel("Custom Parent (optional)")
-		customParent:SetText(SimpleBossModsDB.cfg.bars.customParent or "")
-		customParent:SetFullWidth(true)
-		customParent:SetCallback("OnEnterPressed", function(widget, _, text)
-			addon:ApplyBarCustomParent(text)
-			widget:SetText(SimpleBossModsDB.cfg.bars.customParent or "")
-		end)
-		anchor:AddChild(customParent)
-
-		addNumberInput(anchor, "X Offset",
-			function() return SimpleBossModsDB.cfg.bars.x or 0 end,
-			function(v) addon:ApplyBarAnchorPosition(v, SimpleBossModsDB.cfg.bars.y or 0) end,
-			0.5
-		)
-
-		addNumberInput(anchor, "Y Offset",
-			function() return SimpleBossModsDB.cfg.bars.y or 0 end,
-			function(v) addon:ApplyBarAnchorPosition(SimpleBossModsDB.cfg.bars.x or 0, v) end,
-			0.5
-		)
+		buildAnchorSection(container, barsAnchorParentMap, "bars", "Bar", "ApplyBarAnchorPosition")
 
 		local bars = AG:Create("InlineGroup")
 		bars:SetTitle("Bars")
@@ -2207,62 +1892,7 @@ function M:CreateSettingsWindow()
 		end
 
 		local _, combatAnchorParentMap = buildAnchorParentLists(SimpleBossModsDB.cfg.combatTimer.anchorParent)
-
-		local anchor = AG:Create("InlineGroup")
-		anchor:SetTitle("Anchor")
-		anchor:SetLayout("Flow")
-		anchor:SetFullWidth(true)
-		container:AddChild(anchor)
-
-		local customParent
-
-		addDropdown(anchor, "Anchor From",
-			ANCHOR_POINT_MAP,
-			function() return SimpleBossModsDB.cfg.combatTimer.anchorFrom end,
-			function(v) addon:ApplyCombatTimerAnchorFrom(v) end,
-			0.33
-		)
-
-		addDropdown(anchor, "Anchor To Parent",
-			combatAnchorParentMap,
-			function() return SimpleBossModsDB.cfg.combatTimer.anchorParent end,
-			function(v)
-				addon:ApplyCombatTimerAnchorParent(v)
-				if customParent then
-					customParent:SetText(SimpleBossModsDB.cfg.combatTimer.customParent or "")
-				end
-			end,
-			0.33
-		)
-
-		addDropdown(anchor, "Anchor To",
-			ANCHOR_POINT_MAP,
-			function() return SimpleBossModsDB.cfg.combatTimer.anchorTo end,
-			function(v) addon:ApplyCombatTimerAnchorTo(v) end,
-			0.33
-		)
-
-		customParent = AG:Create("EditBox")
-		customParent:SetLabel("Custom Parent (optional)")
-		customParent:SetText(SimpleBossModsDB.cfg.combatTimer.customParent or "")
-		customParent:SetFullWidth(true)
-		customParent:SetCallback("OnEnterPressed", function(widget, _, text)
-			addon:ApplyCombatTimerCustomParent(text)
-			widget:SetText(SimpleBossModsDB.cfg.combatTimer.customParent or "")
-		end)
-		anchor:AddChild(customParent)
-
-		addNumberInput(anchor, "X Offset",
-			function() return SimpleBossModsDB.cfg.combatTimer.x or 0 end,
-			function(v) addon:ApplyCombatTimerPosition(v, SimpleBossModsDB.cfg.combatTimer.y or 0) end,
-			0.5
-		)
-
-		addNumberInput(anchor, "Y Offset",
-			function() return SimpleBossModsDB.cfg.combatTimer.y or 0 end,
-			function(v) addon:ApplyCombatTimerPosition(SimpleBossModsDB.cfg.combatTimer.x or 0, v) end,
-			0.5
-		)
+		buildAnchorSection(container, combatAnchorParentMap, "combatTimer", "CombatTimer", "ApplyCombatTimerPosition")
 
 		local text = AG:Create("InlineGroup")
 		text:SetTitle("Text")
@@ -2356,62 +1986,7 @@ function M:CreateSettingsWindow()
 		end
 
 		local _, privateAnchorParentMap = buildAnchorParentLists(SimpleBossModsDB.cfg.privateAuras.anchorParent)
-
-		local anchor = AG:Create("InlineGroup")
-		anchor:SetTitle("Anchor")
-		anchor:SetLayout("Flow")
-		anchor:SetFullWidth(true)
-		container:AddChild(anchor)
-
-		local customParent
-
-		addDropdown(anchor, "Anchor From",
-			ANCHOR_POINT_MAP,
-			function() return SimpleBossModsDB.cfg.privateAuras.anchorFrom end,
-			function(v) addon:ApplyPrivateAuraAnchorFrom(v) end,
-			0.33
-		)
-
-		addDropdown(anchor, "Anchor To Parent",
-			privateAnchorParentMap,
-			function() return SimpleBossModsDB.cfg.privateAuras.anchorParent end,
-			function(v)
-				addon:ApplyPrivateAuraAnchorParent(v)
-				if customParent then
-					customParent:SetText(SimpleBossModsDB.cfg.privateAuras.customParent or "")
-				end
-			end,
-			0.33
-		)
-
-		addDropdown(anchor, "Anchor To",
-			ANCHOR_POINT_MAP,
-			function() return SimpleBossModsDB.cfg.privateAuras.anchorTo end,
-			function(v) addon:ApplyPrivateAuraAnchorTo(v) end,
-			0.33
-		)
-
-		customParent = AG:Create("EditBox")
-		customParent:SetLabel("Custom Parent (optional)")
-		customParent:SetText(SimpleBossModsDB.cfg.privateAuras.customParent or "")
-		customParent:SetFullWidth(true)
-		customParent:SetCallback("OnEnterPressed", function(widget, _, text)
-			addon:ApplyPrivateAuraCustomParent(text)
-			widget:SetText(SimpleBossModsDB.cfg.privateAuras.customParent or "")
-		end)
-		anchor:AddChild(customParent)
-
-		addNumberInput(anchor, "X Offset",
-			function() return SimpleBossModsDB.cfg.privateAuras.x or 0 end,
-			function(v) addon:ApplyPrivateAuraPosition(v, SimpleBossModsDB.cfg.privateAuras.y or 0) end,
-			0.5
-		)
-
-		addNumberInput(anchor, "Y Offset",
-			function() return SimpleBossModsDB.cfg.privateAuras.y or 0 end,
-			function(v) addon:ApplyPrivateAuraPosition(SimpleBossModsDB.cfg.privateAuras.x or 0, v) end,
-			0.5
-		)
+		buildAnchorSection(container, privateAnchorParentMap, "privateAuras", "PrivateAura", "ApplyPrivateAuraPosition")
 
 		local layout = AG:Create("InlineGroup")
 		layout:SetTitle("Layout")

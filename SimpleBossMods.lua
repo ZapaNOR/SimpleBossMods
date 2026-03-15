@@ -83,6 +83,7 @@ M.Defaults = M.Defaults or {
 				general = {
 					gap = 8,
 					autoInsertKeystone = false,
+					queueTimers = true,
 					thresholdToBar = C.THRESHOLD_TO_BAR,
 					useRecommendedTimelineSettings = true,
 					animateIcons = true,
@@ -249,13 +250,6 @@ function M:EnsureDefaults()
 	SimpleBossModsDB = SimpleBossModsDB or {}
 	SimpleBossModsDB.cfg = SimpleBossModsDB.cfg or {}
 	SimpleBossModsDB.manualTimers = SimpleBossModsDB.manualTimers or {}
-	
-	-- Legacy cache cleanup
-	if SimpleBossModsDB.encounterEventCache then SimpleBossModsDB.encounterEventCache = nil end
-	if SimpleBossModsDB.spellCache then SimpleBossModsDB.spellCache = nil end
-	if SimpleBossModsDB.cacheBuild then SimpleBossModsDB.cacheBuild = nil end
-	if SimpleBossModsDB.encounterEventSets then SimpleBossModsDB.encounterEventSets = nil end
-	if SimpleBossModsDB.encounterSpellMask then SimpleBossModsDB.encounterSpellMask = nil end
 
 	local cfg = SimpleBossModsDB.cfg
 		cfg.general = cfg.general or {
@@ -280,22 +274,12 @@ function M:EnsureDefaults()
 		end
 	end
 
-	if cfg.general.autoInsertKeystone == nil then
-		cfg.general.autoInsertKeystone = M.Defaults.cfg.general.autoInsertKeystone
-	end
-	if cfg.general.thresholdToBar == nil then
-		cfg.general.thresholdToBar = M.Defaults.cfg.general.thresholdToBar
-	end
-	if cfg.general.useRecommendedTimelineSettings == nil then
-		local legacyConnectors = cfg.connectors
-		if type(legacyConnectors) == "table" and legacyConnectors.useRecommendedSettings ~= nil then
-			cfg.general.useRecommendedTimelineSettings = legacyConnectors.useRecommendedSettings ~= false
-		else
-			cfg.general.useRecommendedTimelineSettings = M.Defaults.cfg.general.useRecommendedTimelineSettings
-		end
-	else
-		cfg.general.useRecommendedTimelineSettings = cfg.general.useRecommendedTimelineSettings and true or false
-	end
+	local ef = M.Util.ensureField
+	ef(cfg.general, "autoInsertKeystone", M.Defaults.cfg.general)
+	ef(cfg.general, "queueTimers", M.Defaults.cfg.general)
+	ef(cfg.general, "thresholdToBar", M.Defaults.cfg.general)
+	ef(cfg.general, "useRecommendedTimelineSettings", M.Defaults.cfg.general)
+	cfg.general.useRecommendedTimelineSettings = cfg.general.useRecommendedTimelineSettings and true or false
 	if cfg.general.animateIcons == nil then
 		cfg.general.animateIcons = M.Defaults.cfg.general.animateIcons
 	else
@@ -306,34 +290,15 @@ function M:EnsureDefaults()
 	else
 		cfg.general.animateBars = cfg.general.animateBars and true or false
 	end
-	if cfg.general.font == nil then
-		cfg.general.font = M.Defaults.cfg.general.font
-	end
-		if cfg.general.useDispelColors == nil then
-			cfg.general.useDispelColors = M.Defaults.cfg.general.useDispelColors
-		end
-		if cfg.general.useRoleColors == nil then
-			cfg.general.useRoleColors = M.Defaults.cfg.general.useRoleColors
-		end
-		if cfg.general.useOtherColors == nil then
-			cfg.general.useOtherColors = M.Defaults.cfg.general.useOtherColors
-		end
-		if cfg.general.usePlayerRoleColor == nil then
-			cfg.general.usePlayerRoleColor = M.Defaults.cfg.general.usePlayerRoleColor
-		end
-		if cfg.general.useSeverityColors == nil then
-			cfg.general.useSeverityColors = M.Defaults.cfg.general.useSeverityColors
-		end
-		if cfg.general.useIconBorderColors == nil then
-			cfg.general.useIconBorderColors = M.Defaults.cfg.general.useIconBorderColors
-		end
+	ef(cfg.general, "font", M.Defaults.cfg.general)
+	ef(cfg.general, "useDispelColors", M.Defaults.cfg.general)
+	ef(cfg.general, "useRoleColors", M.Defaults.cfg.general)
+	ef(cfg.general, "useOtherColors", M.Defaults.cfg.general)
+	ef(cfg.general, "usePlayerRoleColor", M.Defaults.cfg.general)
+	ef(cfg.general, "useSeverityColors", M.Defaults.cfg.general)
+	ef(cfg.general, "useIconBorderColors", M.Defaults.cfg.general)
 		cfg.general.indicatorPriorityGroups = normalizeIndicatorPriorityGroups(cfg.general.indicatorPriorityGroups)
-		if cfg.general.prioritizePlayerRole ~= nil then
-			cfg.general.prioritizePlayerRole = nil
-		end
-		if cfg.general.useCustomPlayerRoleColor == nil then
-			cfg.general.useCustomPlayerRoleColor = M.Defaults.cfg.general.useCustomPlayerRoleColor
-		end
+	ef(cfg.general, "useCustomPlayerRoleColor", M.Defaults.cfg.general)
 	cfg.general.customPlayerRoleColor = cfg.general.customPlayerRoleColor or {
 		r = M.Defaults.cfg.general.customPlayerRoleColor.r,
 		g = M.Defaults.cfg.general.customPlayerRoleColor.g,
@@ -359,58 +324,15 @@ function M:EnsureDefaults()
 		y = M.Defaults.cfg.icons.y,
 		growDirection = M.Defaults.cfg.icons.growDirection,
 	}
-	if cfg.icons.enabled == nil then
-		cfg.icons.enabled = M.Defaults.cfg.icons.enabled
-	end
-	if cfg.icons.gap == nil then
-		cfg.icons.gap = M.Defaults.cfg.icons.gap
-	end
-	if cfg.icons.perRow == nil then
-		cfg.icons.perRow = M.Defaults.cfg.icons.perRow
-	end
-	if cfg.icons.limit == nil then
-		cfg.icons.limit = M.Defaults.cfg.icons.limit
-	end
-	if cfg.icons.anchorFrom == nil then
-		cfg.icons.anchorFrom = M.Defaults.cfg.icons.anchorFrom
-	end
-	if cfg.icons.anchorTo == nil then
-		cfg.icons.anchorTo = M.Defaults.cfg.icons.anchorTo
-	end
-	if cfg.icons.anchorParent == nil then
-		cfg.icons.anchorParent = M.Defaults.cfg.icons.anchorParent
-	end
-	if cfg.icons.customParent == nil then
-		cfg.icons.customParent = M.Defaults.cfg.icons.customParent
-	end
-	if cfg.icons.x == nil then
-		cfg.icons.x = M.Defaults.cfg.icons.x
-	end
-	if cfg.icons.y == nil then
-		cfg.icons.y = M.Defaults.cfg.icons.y
-	end
-	if cfg.icons.growDirection == nil then
-		cfg.icons.growDirection = M.Defaults.cfg.icons.growDirection
+	for _, k in ipairs({"enabled", "gap", "perRow", "limit", "anchorFrom", "anchorTo", "anchorParent", "customParent", "x", "y", "growDirection"}) do
+		ef(cfg.icons, k, M.Defaults.cfg.icons)
 	end
 	if cfg.icons.font == nil then
 		cfg.icons.font = cfg.general.font or M.Defaults.cfg.icons.font
 	end
-	do
-		local dir = cfg.icons.growDirection
-		if type(dir) ~= "string" then
-			dir = M.Defaults.cfg.icons.growDirection
-		end
-		dir = dir:upper():gsub("%s+", "_")
-		if dir == "BOTTOM_DOWN" then
-			dir = "LEFT_DOWN"
-		elseif dir == "BOTTOM_UP" then
-			dir = "LEFT_UP"
-		end
-		if dir ~= "LEFT_DOWN" and dir ~= "LEFT_UP" and dir ~= "RIGHT_DOWN" and dir ~= "RIGHT_UP" then
-			dir = M.Defaults.cfg.icons.growDirection
-		end
-		cfg.icons.growDirection = dir
-	end
+	cfg.icons.growDirection = M.Util.normalizeDirection(cfg.icons.growDirection, M.Defaults.cfg.icons.growDirection,
+		{ LEFT_DOWN = true, LEFT_UP = true, RIGHT_DOWN = true, RIGHT_UP = true },
+		{ BOTTOM_DOWN = "LEFT_DOWN", BOTTOM_UP = "LEFT_UP" })
 	cfg.bars = cfg.bars or {
 		width = M.Defaults.cfg.bars.width,
 		height = M.Defaults.cfg.bars.height,
@@ -430,47 +352,8 @@ function M:EnsureDefaults()
 		sortAscending = M.Defaults.cfg.bars.sortAscending,
 		fillDirection = M.Defaults.cfg.bars.fillDirection,
 	}
-	if cfg.bars.swapIconSide == nil then
-		cfg.bars.swapIconSide = M.Defaults.cfg.bars.swapIconSide
-	end
-	if cfg.bars.swapIndicatorSide == nil then
-		cfg.bars.swapIndicatorSide = M.Defaults.cfg.bars.swapIndicatorSide
-	end
-	if cfg.bars.hideIcon == nil then
-		cfg.bars.hideIcon = M.Defaults.cfg.bars.hideIcon
-	end
-	if cfg.bars.hideIndicators == nil then
-		cfg.bars.hideIndicators = M.Defaults.cfg.bars.hideIndicators
-	end
-	if cfg.bars.anchorFrom == nil then
-		cfg.bars.anchorFrom = M.Defaults.cfg.bars.anchorFrom
-	end
-	if cfg.bars.anchorTo == nil then
-		cfg.bars.anchorTo = M.Defaults.cfg.bars.anchorTo
-	end
-	if cfg.bars.anchorParent == nil then
-		cfg.bars.anchorParent = M.Defaults.cfg.bars.anchorParent
-	end
-	if cfg.bars.customParent == nil then
-		cfg.bars.customParent = M.Defaults.cfg.bars.customParent
-	end
-	if cfg.bars.x == nil then
-		cfg.bars.x = M.Defaults.cfg.bars.x
-	end
-	if cfg.bars.y == nil then
-		cfg.bars.y = M.Defaults.cfg.bars.y
-	end
-	if cfg.bars.growDirection == nil then
-		cfg.bars.growDirection = M.Defaults.cfg.bars.growDirection
-	end
-	if cfg.bars.sortAscending == nil then
-		cfg.bars.sortAscending = M.Defaults.cfg.bars.sortAscending
-	end
-	if cfg.bars.fillDirection == nil then
-		cfg.bars.fillDirection = M.Defaults.cfg.bars.fillDirection
-	end
-	if cfg.bars.texture == nil then
-		cfg.bars.texture = M.Defaults.cfg.bars.texture
+	for _, k in ipairs({"swapIconSide", "swapIndicatorSide", "hideIcon", "hideIndicators", "anchorFrom", "anchorTo", "anchorParent", "customParent", "x", "y", "growDirection", "sortAscending", "fillDirection", "texture"}) do
+		ef(cfg.bars, k, M.Defaults.cfg.bars)
 	end
 	cfg.bars.color = cfg.bars.color or {
 		r = M.Defaults.cfg.bars.color.r,
@@ -497,19 +380,12 @@ function M:EnsureDefaults()
 		end
 		repairColor(cfg.general.indicatorColors[key], defaults.r, defaults.g, defaults.b, defaults.a)
 	end
-	if cfg.colors then
-		cfg.colors = nil
-	end
 	cfg.indicators = cfg.indicators or {
 		iconSize = M.Defaults.cfg.indicators.iconSize,
 		barSize = M.Defaults.cfg.indicators.barSize,
 	}
-	if cfg.indicators.iconSize == nil then
-		cfg.indicators.iconSize = M.Defaults.cfg.indicators.iconSize
-	end
-	if cfg.indicators.barSize == nil then
-		cfg.indicators.barSize = M.Defaults.cfg.indicators.barSize
-	end
+	ef(cfg.indicators, "iconSize", M.Defaults.cfg.indicators)
+	ef(cfg.indicators, "barSize", M.Defaults.cfg.indicators)
 	cfg.privateAuras = cfg.privateAuras or {
 		enabled = M.Defaults.cfg.privateAuras.enabled,
 		size = M.Defaults.cfg.privateAuras.size,
@@ -522,50 +398,11 @@ function M:EnsureDefaults()
 		anchorParent = M.Defaults.cfg.privateAuras.anchorParent,
 		customParent = M.Defaults.cfg.privateAuras.customParent,
 	}
-	if cfg.privateAuras.size == nil then
-		cfg.privateAuras.size = M.Defaults.cfg.privateAuras.size
+	for _, k in ipairs({"size", "enabled", "gap", "x", "y", "anchorFrom", "anchorTo", "anchorParent", "customParent"}) do
+		ef(cfg.privateAuras, k, M.Defaults.cfg.privateAuras)
 	end
-	if cfg.privateAuras.enabled == nil then
-		cfg.privateAuras.enabled = M.Defaults.cfg.privateAuras.enabled
-	end
-	if cfg.privateAuras.gap == nil then
-		cfg.privateAuras.gap = M.Defaults.cfg.privateAuras.gap
-	end
-	if cfg.privateAuras.x == nil then
-		cfg.privateAuras.x = M.Defaults.cfg.privateAuras.x
-	end
-	if cfg.privateAuras.y == nil then
-		cfg.privateAuras.y = M.Defaults.cfg.privateAuras.y
-	end
-	if cfg.privateAuras.anchorFrom == nil then
-		cfg.privateAuras.anchorFrom = M.Defaults.cfg.privateAuras.anchorFrom
-	end
-	if cfg.privateAuras.anchorTo == nil then
-		cfg.privateAuras.anchorTo = M.Defaults.cfg.privateAuras.anchorTo
-	end
-	if cfg.privateAuras.anchorParent == nil then
-		cfg.privateAuras.anchorParent = M.Defaults.cfg.privateAuras.anchorParent
-	end
-	if cfg.privateAuras.customParent == nil then
-		cfg.privateAuras.customParent = M.Defaults.cfg.privateAuras.customParent
-	end
-	cfg.privateAuras.sound = nil
-	cfg.privateAuras.soundKitID = nil
-	cfg.privateAuras.soundChannel = nil
-	cfg.privateAuras.font = nil
-	cfg.privateAuras.fontSize = nil
-	cfg.privateAuras.stackFontSize = nil
-	do
-		local dir = cfg.privateAuras.growDirection
-		if type(dir) ~= "string" then
-			dir = M.Defaults.cfg.privateAuras.growDirection
-		end
-		dir = dir:upper()
-		if dir ~= "LEFT" and dir ~= "RIGHT" and dir ~= "UP" and dir ~= "DOWN" then
-			dir = M.Defaults.cfg.privateAuras.growDirection
-		end
-		cfg.privateAuras.growDirection = dir
-	end
+	cfg.privateAuras.growDirection = M.Util.normalizeDirection(cfg.privateAuras.growDirection, M.Defaults.cfg.privateAuras.growDirection,
+		{ LEFT = true, RIGHT = true, UP = true, DOWN = true })
 
 	cfg.combatTimer = cfg.combatTimer or {
 		enabled = M.Defaults.cfg.combatTimer.enabled,
@@ -574,20 +411,8 @@ function M:EnsureDefaults()
 		font = M.Defaults.cfg.combatTimer.font,
 		fontSize = M.Defaults.cfg.combatTimer.fontSize,
 	}
-	if cfg.combatTimer.enabled == nil then
-		cfg.combatTimer.enabled = M.Defaults.cfg.combatTimer.enabled
-	end
-	if cfg.combatTimer.anchorFrom == nil then
-		cfg.combatTimer.anchorFrom = M.Defaults.cfg.combatTimer.anchorFrom
-	end
-	if cfg.combatTimer.anchorTo == nil then
-		cfg.combatTimer.anchorTo = M.Defaults.cfg.combatTimer.anchorTo
-	end
-	if cfg.combatTimer.anchorParent == nil then
-		cfg.combatTimer.anchorParent = M.Defaults.cfg.combatTimer.anchorParent
-	end
-	if cfg.combatTimer.customParent == nil then
-		cfg.combatTimer.customParent = M.Defaults.cfg.combatTimer.customParent
+	for _, k in ipairs({"enabled", "anchorFrom", "anchorTo", "anchorParent", "customParent"}) do
+		ef(cfg.combatTimer, k, M.Defaults.cfg.combatTimer)
 	end
 	if cfg.combatTimer.font == nil then
 		cfg.combatTimer.font = cfg.general.font or M.Defaults.cfg.combatTimer.font
@@ -600,17 +425,6 @@ function M:EnsureDefaults()
 	end
 	if cfg.combatTimer.y == nil then
 		cfg.combatTimer.y = M.Defaults.cfg.combatTimer.y
-	end
-	if cfg.combatTimer.anchorParent == "SimpleBossMods_Anchor"
-		and cfg.combatTimer.anchorFrom == "LEFT"
-		and cfg.combatTimer.anchorTo == "RIGHT"
-		and cfg.combatTimer.x == -80
-		and cfg.combatTimer.y == 0 then
-		cfg.combatTimer.anchorParent = "SimpleBossMods_PrivateAuras"
-		cfg.combatTimer.anchorFrom = "TOPLEFT"
-		cfg.combatTimer.anchorTo = "BOTTOMLEFT"
-		cfg.combatTimer.x = 0
-		cfg.combatTimer.y = 0
 	end
 	cfg.combatTimer.color = cfg.combatTimer.color or {
 		r = M.Defaults.cfg.combatTimer.color.r,
@@ -681,16 +495,62 @@ function U.round(v)
 	return math.ceil(v - 0.5)
 end
 
-local function normalizeAnchorPoint(point)
+function U.isSecretValue(value)
+	return type(issecretvalue) == "function" and issecretvalue(value)
+end
+
+U.wipe = _G.wipe or function(t)
+	for k in pairs(t) do t[k] = nil end
+end
+
+function U.toNumberSafe(v)
+	if U.isSecretValue(v) then return nil end
+	return tonumber(v)
+end
+
+local VALID_ANCHOR_POINTS = {
+	TOPLEFT = true, TOP = true, TOPRIGHT = true,
+	LEFT = true, CENTER = true, RIGHT = true,
+	BOTTOMLEFT = true, BOTTOM = true, BOTTOMRIGHT = true,
+}
+
+function U.normalizeAnchorPoint(point)
 	if type(point) ~= "string" then return "CENTER" end
 	point = point:upper()
-	if point == "TOPLEFT" or point == "TOP" or point == "TOPRIGHT"
-		or point == "LEFT" or point == "CENTER" or point == "RIGHT"
-		or point == "BOTTOMLEFT" or point == "BOTTOM" or point == "BOTTOMRIGHT" then
-		return point
-	end
-	return "CENTER"
+	return VALID_ANCHOR_POINTS[point] and point or "CENTER"
 end
+
+function U.resolveCustomParent(customParentStr, anchorParent)
+	local customParent = nil
+	if type(customParentStr) == "string" then
+		customParent = customParentStr:gsub("^%s+", ""):gsub("%s+$", "")
+		if customParent == "" then customParent = nil end
+	end
+	local parentName = nil
+	if customParent then
+		parentName = customParent
+	elseif anchorParent ~= "NONE" then
+		parentName = anchorParent
+	end
+	return customParent, parentName
+end
+
+function U.normalizeDirection(dir, defaultDir, allowedSet, legacyRenames)
+	if type(dir) ~= "string" then return defaultDir end
+	dir = dir:upper():gsub("%s+", "_")
+	if legacyRenames and legacyRenames[dir] then
+		dir = legacyRenames[dir]
+	end
+	return allowedSet[dir] and dir or defaultDir
+end
+
+function U.ensureField(section, key, defaultSection)
+	if section[key] == nil then
+		section[key] = defaultSection[key]
+	end
+end
+
+local normalizeAnchorPoint = U.normalizeAnchorPoint
 
 function M.SyncLiveConfig()
 	local gc = SimpleBossModsDB.cfg.general
@@ -741,6 +601,7 @@ function M.SyncLiveConfig()
 
 	L.GAP = tonumber(gc.gap) or 6
 	L.AUTO_INSERT_KEYSTONE = gc.autoInsertKeystone and true or false
+	L.QUEUE_TIMERS = gc.queueTimers ~= false
 	L.THRESHOLD_TO_BAR = U.clamp(tonumber(gc.thresholdToBar) or C.THRESHOLD_TO_BAR, 0, 600)
 
 	L.ICONS_ENABLED = ic.enabled ~= false
@@ -750,42 +611,13 @@ function M.SyncLiveConfig()
 	L.ICON_GAP = U.clamp(U.round(tonumber(ic.gap) or M.Defaults.cfg.icons.gap), -50, 50)
 	L.ICONS_PER_ROW = U.clamp(U.round(tonumber(ic.perRow) or C.ICONS_PER_ROW), 1, 20)
 	L.ICONS_LIMIT = U.clamp(U.round(tonumber(ic.limit) or 0), 0, 200)
-	do
-		local dir = ic.growDirection
-		if type(dir) ~= "string" then
-			dir = M.Defaults.cfg.icons.growDirection
-		end
-		dir = dir:upper():gsub("%s+", "_")
-		if dir == "BOTTOM_DOWN" then
-			dir = "LEFT_DOWN"
-		elseif dir == "BOTTOM_UP" then
-			dir = "LEFT_UP"
-		end
-		if dir ~= "LEFT_DOWN" and dir ~= "LEFT_UP" and dir ~= "RIGHT_DOWN" and dir ~= "RIGHT_UP" then
-			dir = M.Defaults.cfg.icons.growDirection
-		end
-		L.ICON_GROW_DIR = dir
-	end
+	L.ICON_GROW_DIR = U.normalizeDirection(ic.growDirection, M.Defaults.cfg.icons.growDirection,
+		{ LEFT_DOWN = true, LEFT_UP = true, RIGHT_DOWN = true, RIGHT_UP = true },
+		{ BOTTOM_DOWN = "LEFT_DOWN", BOTTOM_UP = "LEFT_UP" })
 	L.ICON_ANCHOR_FROM = normalizeAnchorPoint(ic.anchorFrom)
 	L.ICON_ANCHOR_TO = normalizeAnchorPoint(ic.anchorTo)
 	L.ICON_ANCHOR_PARENT = (type(ic.anchorParent) == "string" and ic.anchorParent ~= "") and ic.anchorParent or "NONE"
-	do
-		local customParent = nil
-		if type(ic.customParent) == "string" then
-			customParent = ic.customParent:gsub("^%s+", ""):gsub("%s+$", "")
-			if customParent == "" then
-				customParent = nil
-			end
-		end
-		L.ICON_ANCHOR_CUSTOM_PARENT = customParent
-		if customParent then
-			L.ICON_PARENT_NAME = customParent
-		elseif L.ICON_ANCHOR_PARENT ~= "NONE" then
-			L.ICON_PARENT_NAME = L.ICON_ANCHOR_PARENT
-		else
-			L.ICON_PARENT_NAME = nil
-		end
-	end
+	L.ICON_ANCHOR_CUSTOM_PARENT, L.ICON_PARENT_NAME = U.resolveCustomParent(ic.customParent, L.ICON_ANCHOR_PARENT)
 	L.ICON_ANCHOR_X = tonumber(ic.x) or 0
 	L.ICON_ANCHOR_Y = tonumber(ic.y) or 0
 	L.ICON_FONT_KEY = ic.font or M.Defaults.cfg.icons.font
@@ -802,17 +634,8 @@ function M.SyncLiveConfig()
 	L.BAR_INDICATOR_SWAP = bc.swapIndicatorSide and true or false
 	L.BAR_ICON_HIDDEN = bc.hideIcon and true or false
 	L.BAR_INDICATOR_HIDDEN = bc.hideIndicators and true or false
-	do
-		local dir = bc.growDirection
-		if type(dir) ~= "string" then
-			dir = M.Defaults.cfg.bars.growDirection
-		end
-		dir = dir:upper()
-		if dir ~= "UP" and dir ~= "DOWN" then
-			dir = M.Defaults.cfg.bars.growDirection
-		end
-		L.BAR_GROW_DIR = dir
-	end
+	L.BAR_GROW_DIR = U.normalizeDirection(bc.growDirection, M.Defaults.cfg.bars.growDirection,
+		{ UP = true, DOWN = true })
 	L.BAR_SORT_ASC = bc.sortAscending and true or false
 	do
 		local fill = bc.fillDirection
@@ -841,23 +664,7 @@ function M.SyncLiveConfig()
 	L.BAR_ANCHOR_FROM = normalizeAnchorPoint(bc.anchorFrom)
 	L.BAR_ANCHOR_TO = normalizeAnchorPoint(bc.anchorTo)
 	L.BAR_ANCHOR_PARENT = (type(bc.anchorParent) == "string" and bc.anchorParent ~= "") and bc.anchorParent or "NONE"
-	do
-		local customParent = nil
-		if type(bc.customParent) == "string" then
-			customParent = bc.customParent:gsub("^%s+", ""):gsub("%s+$", "")
-			if customParent == "" then
-				customParent = nil
-			end
-		end
-		L.BAR_ANCHOR_CUSTOM_PARENT = customParent
-		if customParent then
-			L.BAR_PARENT_NAME = customParent
-		elseif L.BAR_ANCHOR_PARENT ~= "NONE" then
-			L.BAR_PARENT_NAME = L.BAR_ANCHOR_PARENT
-		else
-			L.BAR_PARENT_NAME = nil
-		end
-	end
+	L.BAR_ANCHOR_CUSTOM_PARENT, L.BAR_PARENT_NAME = U.resolveCustomParent(bc.customParent, L.BAR_ANCHOR_PARENT)
 	L.BAR_ANCHOR_X = tonumber(bc.x) or 0
 	L.BAR_ANCHOR_Y = tonumber(bc.y) or 0
 	L.BAR_TEX_KEY = bc.texture or M.Defaults.cfg.bars.texture
@@ -882,37 +689,12 @@ function M.SyncLiveConfig()
 
 	L.PRIVATE_AURA_SIZE = U.clamp(U.round(tonumber(pc.size) or M.Defaults.cfg.privateAuras.size), 16, 128)
 	L.PRIVATE_AURA_GAP = U.clamp(U.round(tonumber(pc.gap) or 0), 0, 50)
-	do
-		local dir = pc.growDirection
-		if type(dir) ~= "string" then
-			dir = M.Defaults.cfg.privateAuras.growDirection
-		end
-		dir = dir:upper()
-		if dir ~= "LEFT" and dir ~= "RIGHT" and dir ~= "UP" and dir ~= "DOWN" then
-			dir = M.Defaults.cfg.privateAuras.growDirection
-		end
-		L.PRIVATE_AURA_GROW = dir
-	end
+	L.PRIVATE_AURA_GROW = U.normalizeDirection(pc.growDirection, M.Defaults.cfg.privateAuras.growDirection,
+		{ LEFT = true, RIGHT = true, UP = true, DOWN = true })
 	L.PRIVATE_AURA_ANCHOR_FROM = normalizeAnchorPoint(pc.anchorFrom)
 	L.PRIVATE_AURA_ANCHOR_TO = normalizeAnchorPoint(pc.anchorTo)
 	L.PRIVATE_AURA_ANCHOR_PARENT = (type(pc.anchorParent) == "string" and pc.anchorParent ~= "") and pc.anchorParent or "NONE"
-	do
-		local customParent = nil
-		if type(pc.customParent) == "string" then
-			customParent = pc.customParent:gsub("^%s+", ""):gsub("%s+$", "")
-			if customParent == "" then
-				customParent = nil
-			end
-		end
-		L.PRIVATE_AURA_ANCHOR_CUSTOM_PARENT = customParent
-		if customParent then
-			L.PRIVATE_AURA_PARENT_NAME = customParent
-		elseif L.PRIVATE_AURA_ANCHOR_PARENT ~= "NONE" then
-			L.PRIVATE_AURA_PARENT_NAME = L.PRIVATE_AURA_ANCHOR_PARENT
-		else
-			L.PRIVATE_AURA_PARENT_NAME = nil
-		end
-	end
+	L.PRIVATE_AURA_ANCHOR_CUSTOM_PARENT, L.PRIVATE_AURA_PARENT_NAME = U.resolveCustomParent(pc.customParent, L.PRIVATE_AURA_ANCHOR_PARENT)
 	L.PRIVATE_AURA_X = tonumber(pc.x) or 0
 	L.PRIVATE_AURA_Y = tonumber(pc.y) or 0
 
@@ -923,21 +705,7 @@ function M.SyncLiveConfig()
 	L.COMBAT_TIMER_ANCHOR_FROM = normalizeAnchorPoint(ct.anchorFrom)
 	L.COMBAT_TIMER_ANCHOR_TO = normalizeAnchorPoint(ct.anchorTo)
 	L.COMBAT_TIMER_ANCHOR_PARENT = (type(ct.anchorParent) == "string" and ct.anchorParent ~= "") and ct.anchorParent or "NONE"
-	local customParent = nil
-	if type(ct.customParent) == "string" then
-		customParent = ct.customParent:gsub("^%s+", ""):gsub("%s+$", "")
-		if customParent == "" then
-			customParent = nil
-		end
-	end
-	L.COMBAT_TIMER_ANCHOR_CUSTOM_PARENT = customParent
-	if customParent then
-		L.COMBAT_TIMER_PARENT_NAME = customParent
-	elseif L.COMBAT_TIMER_ANCHOR_PARENT ~= "NONE" then
-		L.COMBAT_TIMER_PARENT_NAME = L.COMBAT_TIMER_ANCHOR_PARENT
-	else
-		L.COMBAT_TIMER_PARENT_NAME = nil
-	end
+	L.COMBAT_TIMER_ANCHOR_CUSTOM_PARENT, L.COMBAT_TIMER_PARENT_NAME = U.resolveCustomParent(ct.customParent, L.COMBAT_TIMER_ANCHOR_PARENT)
 
 	L.COMBAT_TIMER_FONT_KEY = ct.font or L.FONT_KEY or M.Defaults.cfg.combatTimer.font
 	L.COMBAT_TIMER_FONT_PATH = C.FONT_PATH
@@ -965,9 +733,7 @@ function M.SyncLiveConfig()
 	L.COMBAT_TIMER_BG_A = U.clamp(tonumber(ctBg.a) or M.Defaults.cfg.combatTimer.bgColor.a, 0, 1)
 end
 
-local function isSecretValue(value)
-	return type(issecretvalue) == "function" and issecretvalue(value)
-end
+local isSecretValue = U.isSecretValue
 
 local INDICATOR_MASK_MAP = {
 	deadly = 1,
@@ -1405,7 +1171,6 @@ M.events = M.events or {}
 M._settingsCategoryName = "SimpleBossMods"
 M._settingsCategoryID = nil
 M._testTicker = nil
-M._testSourceConnectorID = nil
 M._testTimelineEventIDs = nil
 M._testTimelineEventIDSet = nil
 M._testEditModeEventTimer = nil

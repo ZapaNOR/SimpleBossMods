@@ -50,8 +50,7 @@ end
 
 function M:StopTest()
 	self._testActive = nil
-	self._testSourceConnectorID = nil
-	
+
 	if self._testCombatTimer then
 		self._testCombatTimer = nil
 		if self.UpdateCombatTimerState then
@@ -87,7 +86,6 @@ function M:StartTest()
 
 	if self.StartEditModeTimelineTest then
 		if self:StartEditModeTimelineTest() then
-			self._testSourceConnectorID = "timeline"
 			return
 		end
 	end

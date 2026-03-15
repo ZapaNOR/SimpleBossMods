@@ -8,11 +8,7 @@ local C = M.Const
 local L = M.Live
 local U = M.Util
 local frames = M.frames
-local wipe = _G.wipe or function(t)
-	for k in pairs(t) do
-		t[k] = nil
-	end
-end
+local wipe = U.wipe
 
 local layoutIconList = {}
 local layoutBarList = {}
@@ -20,9 +16,7 @@ local Enum_EncounterTimelineEventState = Enum and Enum.EncounterTimelineEventSta
 local EVENT_STATE_FINISHED = Enum_EncounterTimelineEventState and Enum_EncounterTimelineEventState.Finished
 local EVENT_STATE_CANCELED = Enum_EncounterTimelineEventState and Enum_EncounterTimelineEventState.Canceled
 
-local function isSecretValue(value)
-	return type(issecretvalue) == "function" and issecretvalue(value)
-end
+local isSecretValue = U.isSecretValue
 
 local function unpackColor(color)
 	if type(color) ~= "table" then
@@ -61,11 +55,7 @@ local function getIndicatorBarColor(rec)
 	if rawMask == nil then
 		rawMask = rec._indicatorMask
 	end
-	if isSecretValue(rawMask) then
-		rawMask = nil
-	end
-
-	local mask = tonumber(rawMask)
+	local mask = U.toNumberSafe(rawMask)
 	if type(mask) ~= "number" or mask <= 0 then
 		mask = nil
 	end
@@ -102,18 +92,8 @@ local function getTimelineBarColor(rec)
 		if fromSecret or toSecret then
 			return fromR, fromG, fromB, fromA
 		end
-		local rawRem = rec.remaining
-		if isSecretValue(rawRem) then
-			rawRem = nil
-		end
-		local rem = tonumber(rawRem)
-		if isSecretValue(rem) then
-			rem = nil
-		end
-		local window = tonumber(rec._timelineColorStartRemaining)
-		if isSecretValue(window) then
-			window = nil
-		end
+		local rem = U.toNumberSafe(rec.remaining)
+		local window = U.toNumberSafe(rec._timelineColorStartRemaining)
 		if not window or window <= 0 then
 			window = tonumber(L.THRESHOLD_TO_BAR) or 0
 		end
@@ -141,9 +121,6 @@ local function getTimelineBarColor(rec)
 	end
 
 	if colorR then
-		if colorSecret then
-			return colorR, colorG, colorB, colorA
-		end
 		return colorR, colorG, colorB, colorA
 	end
 	if fromR then
@@ -325,11 +302,7 @@ local function getRecordRemainingForOutro(rec)
 		return nil
 	end
 
-	local rem = rec.remaining
-	if isSecretValue(rem) then
-		rem = nil
-	end
-	rem = tonumber(rem)
+	local rem = U.toNumberSafe(rec.remaining)
 
 	if rec.isQueued or rec.isPaused or rec.isBlocked then
 		return rem
@@ -1728,25 +1701,9 @@ function M:updateRecord(eventID, eventInfo, remaining)
 		self:ensureIcon(rec)
 	end
 	if rec.barFrame and not rec.isManual then
-		local threshold = tonumber(L.THRESHOLD_TO_BAR) or 0
-		if isSecretValue(threshold) then
-			threshold = 0
-		end
-
-		local rawRemaining = rec.remaining
-		if isSecretValue(rawRemaining) then
-			rawRemaining = nil
-		end
-		local remainingNum = tonumber(rawRemaining)
-		if isSecretValue(remainingNum) then
-			remainingNum = nil
-		end
-
-		local startRemaining = rec._timelineColorStartRemaining
-		if isSecretValue(startRemaining) then
-			startRemaining = nil
-		end
-		startRemaining = tonumber(startRemaining)
+		local threshold = U.toNumberSafe(L.THRESHOLD_TO_BAR) or 0
+		local remainingNum = U.toNumberSafe(rec.remaining)
+		local startRemaining = U.toNumberSafe(rec._timelineColorStartRemaining)
 
 		if not hadBar then
 			startRemaining = remainingNum

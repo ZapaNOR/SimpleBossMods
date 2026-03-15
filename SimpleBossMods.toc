@@ -18,4 +18,5 @@ SBM_UI.lua
 SBM_Layout.lua
 SBM_Test.lua
 SBM_Settings.lua
+SBM_QueuePop.lua
 SBM_Events.lua

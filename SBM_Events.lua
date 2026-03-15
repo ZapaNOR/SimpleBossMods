@@ -254,8 +254,8 @@ local function ensureBlizzardTimelineSettings()
 	end
 end
 
-local function isTimelineConnectorActive()
-	return true
+local function deferredTick()
+	C_Timer.After(0, function() M:Tick() end)
 end
 
 local function getUseRecommendedTimelineSettings()
@@ -263,10 +263,6 @@ local function getUseRecommendedTimelineSettings()
 	local general = cfg and cfg.general
 	if type(general) == "table" and general.useRecommendedTimelineSettings ~= nil then
 		return general.useRecommendedTimelineSettings ~= false
-	end
-	local connectors = cfg and cfg.connectors
-	if type(connectors) == "table" and connectors.useRecommendedSettings ~= nil then
-		return connectors.useRecommendedSettings ~= false
 	end
 	return true
 end
@@ -277,17 +273,17 @@ local function hideBlizzardEncounterTimeline()
 	if not frame._sbmHideHooked then
 		frame._sbmHideHooked = true
 		frame:HookScript("OnShow", function(self)
-			if isTimelineConnectorActive() and getUseRecommendedTimelineSettings() then
+			if getUseRecommendedTimelineSettings() then
 				self:Hide()
 			end
 		end)
 	end
-	if frame:IsShown() and isTimelineConnectorActive() and getUseRecommendedTimelineSettings() then
+	if frame:IsShown() and getUseRecommendedTimelineSettings() then
 		frame:Hide()
 	end
 end
 
-local function applyTimelineConnectorMode()
+local function applyTimelineRecommendedMode()
 	if not getUseRecommendedTimelineSettings() then
 		return
 	end
@@ -296,11 +292,7 @@ local function applyTimelineConnectorMode()
 end
 
 function M:ApplyTimelineRecommendedMode()
-	applyTimelineConnectorMode()
-end
-
-function M:ApplyTimelineConnectorMode()
-	applyTimelineConnectorMode()
+	applyTimelineRecommendedMode()
 end
 
 local function ensureManualTimerRecord(kind)
@@ -561,7 +553,7 @@ ef:SetScript("OnEvent", function(_, event, ...)
 	if event == "PLAYER_LOGIN" then
 		M:EnsureDefaults()
 		M.SyncLiveConfig()
-		applyTimelineConnectorMode()
+		applyTimelineRecommendedMode()
 
 		M:ApplyGeneralConfig(
 			SimpleBossModsDB.cfg.general.gap or 6,
@@ -588,7 +580,7 @@ ef:SetScript("OnEvent", function(_, event, ...)
 		end
 
 		M:CreateSettingsPanel()
-		if isTimelineConnectorActive() and not (InCombatLockdown and InCombatLockdown()) then
+		if not (InCombatLockdown and InCombatLockdown()) then
 			local now = (GetTime and GetTime()) or 0
 			M._suppressTimelineUntil = now + 0.5
 		end
@@ -629,40 +621,32 @@ ef:SetScript("OnEvent", function(_, event, ...)
 				M:SetupKeystoneAutoInsert()
 			end
 		elseif name == "Blizzard_EditMode" then
-			applyTimelineConnectorMode()
+			applyTimelineRecommendedMode()
 		elseif name == "Blizzard_EncounterTimeline" then
-			applyTimelineConnectorMode()
+			applyTimelineRecommendedMode()
 		elseif name == "Blizzard_EncounterEvents" then
-			applyTimelineConnectorMode()
+			applyTimelineRecommendedMode()
 			if M and M.EnsureEncounterEventCache then
 				M:EnsureEncounterEventCache()
 			end
 		end
 	elseif event == "ENCOUNTER_TIMELINE_EVENT_ADDED" then
-		if isTimelineConnectorActive() then
-			C_Timer.After(0, function() M:Tick() end)
-		end
+		deferredTick()
 	elseif event == "ENCOUNTER_TIMELINE_EVENT_STATE_CHANGED" then
 		local eventID = ...
-		if isTimelineConnectorActive() and M.SetTimelineEventTerminalState then
+		if M.SetTimelineEventTerminalState then
 			M:SetTimelineEventTerminalState(eventID)
 		end
-		if isTimelineConnectorActive() then
-			C_Timer.After(0, function() M:Tick() end)
-		end
+		deferredTick()
 	elseif event == "ENCOUNTER_TIMELINE_EVENT_TRACK_CHANGED"
 		or event == "ENCOUNTER_TIMELINE_EVENT_BLOCK_STATE_CHANGED" then
-		if isTimelineConnectorActive() then
-			C_Timer.After(0, function() M:Tick() end)
-		end
+		deferredTick()
 	elseif event == "ENCOUNTER_TIMELINE_EVENT_REMOVED" then
 		local eventID = ...
-		if isTimelineConnectorActive() and type(eventID) == "number" then
+		if type(eventID) == "number" then
 			M:removeEvent(eventID, "timeline-removed", false)
 		end
-		if isTimelineConnectorActive() then
-			C_Timer.After(0, function() M:Tick() end)
-		end
+		deferredTick()
 	elseif event == "ENCOUNTER_END" then
 		if M and M.ClearEncounterEventFallbackCache then
 			M:ClearEncounterEventFallbackCache()
@@ -687,20 +671,16 @@ ef:SetScript("OnEvent", function(_, event, ...)
 	elseif event == "ENCOUNTER_TIMELINE_LAYOUT_UPDATED"
 		or event == "ENCOUNTER_TIMELINE_STATE_UPDATED"
 		or event == "ENCOUNTER_TIMELINE_VIEW_ACTIVATED" then
-		if isTimelineConnectorActive() then
-			C_Timer.After(0, function() M:Tick() end)
-		end
+		deferredTick()
 	elseif event == "ENCOUNTER_TIMELINE_VIEW_DEACTIVATED" then
-		if isTimelineConnectorActive() then
-			if M.clearAll then
-				M:clearAll()
-			end
-			if M.LayoutAll then
-				M:LayoutAll()
-			end
+		if M.clearAll then
+			M:clearAll()
+		end
+		if M.LayoutAll then
+			M:LayoutAll()
 		end
 	elseif event == "EDIT_MODE_LAYOUTS_UPDATED" then
-		applyTimelineConnectorMode()
+		applyTimelineRecommendedMode()
 	elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
 		if M.BuildEncounterEventCache then
 			M:BuildEncounterEventCache()
@@ -776,44 +756,28 @@ ef:SetScript("OnEvent", function(_, event, ...)
 			local bwPrefix, bwMsg, bwExtra = strsplit("^", msg or "")
 			if bwPrefix then
 				bwPrefix = bwPrefix:upper()
-				if bwPrefix == "P" or bwPrefix == "PULL" or bwPrefix == "PT" then
-					local secs = parseTimerValue(bwMsg)
+				local BW_PULL = { P = true, PULL = true, PT = true }
+				local BW_BREAK = { BT = true, BR = true, BREAK = true }
+				local function handleBWSync(kind, secsStr)
+					local secs = parseTimerValue(secsStr)
 					if secs ~= nil then
 						if secs > 0 then
-							M:StartExternalManualTimer("pull", secs, "bigwigs", true)
+							M:StartExternalManualTimer(kind, secs, "bigwigs", true)
 						else
-							M:StopManualTimer("pull", true)
+							M:StopManualTimer(kind, true)
 						end
 					end
-				elseif bwPrefix == "BT" or bwPrefix == "BR" or bwPrefix == "BREAK" then
-					local secs = parseTimerValue(bwMsg)
-					if secs ~= nil then
-						if secs > 0 then
-							M:StartExternalManualTimer("break", secs, "bigwigs", true)
-						else
-							M:StopManualTimer("break", true)
-						end
-					end
+				end
+				if BW_PULL[bwPrefix] then
+					handleBWSync("pull", bwMsg)
+				elseif BW_BREAK[bwPrefix] then
+					handleBWSync("break", bwMsg)
 				elseif bwPrefix == "B" and bwMsg then
 					local inner = bwMsg:upper()
-					if inner == "P" or inner == "PULL" or inner == "PT" then
-						local secs = parseTimerValue(bwExtra)
-						if secs ~= nil then
-							if secs > 0 then
-								M:StartExternalManualTimer("pull", secs, "bigwigs", true)
-							else
-								M:StopManualTimer("pull", true)
-							end
-						end
-					elseif inner == "B" or inner == "BR" or inner == "BREAK" or inner == "BT" then
-						local secs = parseTimerValue(bwExtra)
-						if secs ~= nil then
-							if secs > 0 then
-								M:StartExternalManualTimer("break", secs, "bigwigs", true)
-							else
-								M:StopManualTimer("break", true)
-							end
-						end
+					if BW_PULL[inner] then
+						handleBWSync("pull", bwExtra)
+					elseif BW_BREAK[inner] or inner == "B" then
+						handleBWSync("break", bwExtra)
 					end
 				end
 			end

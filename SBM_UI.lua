@@ -28,57 +28,37 @@ frames.privateAurasAnchor = privateAurasAnchor
 
 local getPrivateAuraLayout
 
+local function applyAnchorToFrame(frame, parentNameKey, fromKey, toKey, xKey, yKey, defaultFrom, defaultTo)
+	frame:ClearAllPoints()
+	local parent = UIParent
+	local pName = L[parentNameKey]
+	if type(pName) == "string" and pName ~= "" then
+		parent = _G[pName] or UIParent
+	end
+	frame:SetPoint(
+		L[fromKey] or defaultFrom,
+		parent,
+		L[toKey] or defaultTo,
+		L[xKey] or 0,
+		(L[yKey] or 0) + C.GLOBAL_Y_NUDGE
+	)
+end
+
 function M:UpdateIconsAnchorPosition()
 	if not iconsParent then return end
-	iconsParent:ClearAllPoints()
-	local parent = UIParent
-	local parentName = L.ICON_PARENT_NAME
-	if type(parentName) == "string" and parentName ~= "" then
-		parent = _G[parentName] or UIParent
-	end
-	iconsParent:SetPoint(
-		L.ICON_ANCHOR_FROM or "TOPLEFT",
-		parent,
-		L.ICON_ANCHOR_TO or "CENTER",
-		L.ICON_ANCHOR_X or 0,
-		(L.ICON_ANCHOR_Y or 0) + C.GLOBAL_Y_NUDGE
-	)
+	applyAnchorToFrame(iconsParent, "ICON_PARENT_NAME", "ICON_ANCHOR_FROM", "ICON_ANCHOR_TO", "ICON_ANCHOR_X", "ICON_ANCHOR_Y", "TOPLEFT", "CENTER")
 end
 
 function M:UpdateBarsAnchorPosition()
 	if not barsParent then return end
-	barsParent:ClearAllPoints()
-	local parent = UIParent
-	local parentName = L.BAR_PARENT_NAME
-	if type(parentName) == "string" and parentName ~= "" then
-		parent = _G[parentName] or UIParent
-	end
-	barsParent:SetPoint(
-		L.BAR_ANCHOR_FROM or "BOTTOMLEFT",
-		parent,
-		L.BAR_ANCHOR_TO or "TOPLEFT",
-		L.BAR_ANCHOR_X or 0,
-		(L.BAR_ANCHOR_Y or 0) + C.GLOBAL_Y_NUDGE
-	)
+	applyAnchorToFrame(barsParent, "BAR_PARENT_NAME", "BAR_ANCHOR_FROM", "BAR_ANCHOR_TO", "BAR_ANCHOR_X", "BAR_ANCHOR_Y", "BOTTOMLEFT", "TOPLEFT")
 end
 
 function M:UpdatePrivateAuraAnchorPosition()
 	if not privateAurasAnchor then return end
 	local _, _, _, width, height = getPrivateAuraLayout()
 	privateAurasAnchor:SetSize(width or 1, height or 1)
-	privateAurasAnchor:ClearAllPoints()
-	local parent = UIParent
-	local parentName = L.PRIVATE_AURA_PARENT_NAME
-	if type(parentName) == "string" and parentName ~= "" then
-		parent = _G[parentName] or UIParent
-	end
-	privateAurasAnchor:SetPoint(
-		L.PRIVATE_AURA_ANCHOR_FROM or "CENTER",
-		parent,
-		L.PRIVATE_AURA_ANCHOR_TO or "CENTER",
-		L.PRIVATE_AURA_X or 0,
-		(L.PRIVATE_AURA_Y or 0) + C.GLOBAL_Y_NUDGE
-	)
+	applyAnchorToFrame(privateAurasAnchor, "PRIVATE_AURA_PARENT_NAME", "PRIVATE_AURA_ANCHOR_FROM", "PRIVATE_AURA_ANCHOR_TO", "PRIVATE_AURA_X", "PRIVATE_AURA_Y", "CENTER", "CENTER")
 end
 
 local COMBAT_TIMER_PAD_X = 8
@@ -667,40 +647,30 @@ local function ensureFullBorder(owner, thickness, r, g, b, a)
 	setColor(bf.__fullBorder)
 end
 
-local function ensureRightDivider(owner, thickness)
+local function ensureDivider(owner, thickness, fieldKey, topAnchor, botAnchor)
 	local bf = ensureBorderFrame(owner)
 
-	if bf.__rightDivider then
-		bf.__rightDivider:SetWidth(thickness or 1)
+	if bf[fieldKey] then
+		bf[fieldKey]:SetWidth(thickness or 1)
 		return
 	end
 
 	local t = thickness or 1
 	local div = bf:CreateTexture(nil, "OVERLAY")
 	div:SetColorTexture(0, 0, 0, 1)
-	div:SetPoint("TOPRIGHT", owner, "TOPRIGHT", 0, 0)
-	div:SetPoint("BOTTOMRIGHT", owner, "BOTTOMRIGHT", 0, 0)
+	div:SetPoint(topAnchor, owner, topAnchor, 0, 0)
+	div:SetPoint(botAnchor, owner, botAnchor, 0, 0)
 	div:SetWidth(t)
 
-	bf.__rightDivider = div
+	bf[fieldKey] = div
+end
+
+local function ensureRightDivider(owner, thickness)
+	ensureDivider(owner, thickness, "__rightDivider", "TOPRIGHT", "BOTTOMRIGHT")
 end
 
 local function ensureLeftDivider(owner, thickness)
-	local bf = ensureBorderFrame(owner)
-
-	if bf.__leftDivider then
-		bf.__leftDivider:SetWidth(thickness or 1)
-		return
-	end
-
-	local t = thickness or 1
-	local div = bf:CreateTexture(nil, "OVERLAY")
-	div:SetColorTexture(0, 0, 0, 1)
-	div:SetPoint("TOPLEFT", owner, "TOPLEFT", 0, 0)
-	div:SetPoint("BOTTOMLEFT", owner, "BOTTOMLEFT", 0, 0)
-	div:SetWidth(t)
-
-	bf.__leftDivider = div
+	ensureDivider(owner, thickness, "__leftDivider", "TOPLEFT", "BOTTOMLEFT")
 end
 
 M.ensureFullBorder = ensureFullBorder
@@ -1003,9 +973,7 @@ M.setBarFillFlat = setBarFillFlat
 -- =========================
 -- Tooltips
 -- =========================
-local function isSecretValue(value)
-	return type(issecretvalue) == "function" and issecretvalue(value)
-end
+local isSecretValue = U.isSecretValue
 
 local function getEventRecordFromFrame(frame)
 	if not frame then return nil end
@@ -1130,17 +1098,9 @@ local function hideEventTooltip(self)
 	end
 end
 
-local function iconTooltipOnEnter(self)
-	showEventTooltip(self)
-end
-
-local function barIconTooltipOnEnter(self)
-	showEventTooltip(self)
-end
-
-local function barTooltipOnEnter(self)
-	showEventTooltip(self)
-end
+local iconTooltipOnEnter = showEventTooltip
+local barIconTooltipOnEnter = showEventTooltip
+local barTooltipOnEnter = showEventTooltip
 
 -- =========================
 -- Pools
@@ -1153,18 +1113,19 @@ local barPool = pools.bar
 local tooltipMousePending = M.tooltipMousePending or setmetatable({}, { __mode = "k" })
 M.tooltipMousePending = tooltipMousePending
 
-local function applyIconFont(fs)
+local function applyFont(fs, path, size)
 	if not fs then return end
-	fs:SetFont(L.ICON_FONT_PATH or L.FONT_PATH or C.FONT_PATH, L.ICON_FONT_SIZE, C.FONT_FLAGS)
+	fs:SetFont(path, size, C.FONT_FLAGS)
 	fs:SetShadowColor(0, 0, 0, 0)
 	fs:SetShadowOffset(0, 0)
 end
 
+local function applyIconFont(fs)
+	applyFont(fs, L.ICON_FONT_PATH or L.FONT_PATH or C.FONT_PATH, L.ICON_FONT_SIZE)
+end
+
 local function applyBarFont(fs)
-	if not fs then return end
-	fs:SetFont(L.FONT_PATH or C.FONT_PATH, L.BAR_FONT_SIZE, C.FONT_FLAGS)
-	fs:SetShadowColor(0, 0, 0, 0)
-	fs:SetShadowOffset(0, 0)
+	applyFont(fs, L.FONT_PATH or C.FONT_PATH, L.BAR_FONT_SIZE)
 end
 
 local function configureTooltipFrameMouse(frame)
