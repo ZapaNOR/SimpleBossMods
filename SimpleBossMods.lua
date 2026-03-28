@@ -83,6 +83,7 @@ M.Defaults = M.Defaults or {
 				general = {
 					gap = 8,
 					autoInsertKeystone = false,
+					shareKeystones = true,
 					queueTimers = true,
 					thresholdToBar = C.THRESHOLD_TO_BAR,
 					useRecommendedTimelineSettings = true,
@@ -276,6 +277,7 @@ function M:EnsureDefaults()
 
 	local ef = M.Util.ensureField
 	ef(cfg.general, "autoInsertKeystone", M.Defaults.cfg.general)
+	ef(cfg.general, "shareKeystones", M.Defaults.cfg.general)
 	ef(cfg.general, "queueTimers", M.Defaults.cfg.general)
 	ef(cfg.general, "thresholdToBar", M.Defaults.cfg.general)
 	ef(cfg.general, "useRecommendedTimelineSettings", M.Defaults.cfg.general)
@@ -601,6 +603,7 @@ function M.SyncLiveConfig()
 
 	L.GAP = tonumber(gc.gap) or 6
 	L.AUTO_INSERT_KEYSTONE = gc.autoInsertKeystone and true or false
+	L.SHARE_KEYSTONES = gc.shareKeystones ~= false
 	L.QUEUE_TIMERS = gc.queueTimers ~= false
 	L.THRESHOLD_TO_BAR = U.clamp(tonumber(gc.thresholdToBar) or C.THRESHOLD_TO_BAR, 0, 600)
 

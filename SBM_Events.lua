@@ -174,6 +174,171 @@ local function getAddonMessageChannel()
 	return nil
 end
 
+-- =========================
+-- Keystone Sharing (LibKS-compatible)
+-- =========================
+local keystoneData = {} -- [playerName] = { level, mapID, rating }
+local keystoneThrottleParty = 0
+local KEYSTONE_THROTTLE = 3
+
+local function getDungeonName(mapID)
+	if C_ChallengeMode and C_ChallengeMode.GetMapUIInfo then
+		local name = C_ChallengeMode.GetMapUIInfo(mapID)
+		if name then return name end
+	end
+	return tostring(mapID)
+end
+
+local function getOwnKeystoneInfo()
+	local keyLevel, keyChallengeMapID, playerRating = 0, 0, 0
+	if C_MythicPlus and C_MythicPlus.GetOwnedKeystoneLevel then
+		keyLevel = C_MythicPlus.GetOwnedKeystoneLevel() or 0
+	end
+	if C_MythicPlus and C_MythicPlus.GetOwnedKeystoneChallengeMapID then
+		keyChallengeMapID = C_MythicPlus.GetOwnedKeystoneChallengeMapID() or 0
+	end
+	if C_PlayerInfo and C_PlayerInfo.GetPlayerMythicPlusRatingSummary then
+		local summary = C_PlayerInfo.GetPlayerMythicPlusRatingSummary("player")
+		if type(summary) == "table" and type(summary.currentSeasonScore) == "number" then
+			playerRating = summary.currentSeasonScore
+		end
+	end
+	return keyLevel, keyChallengeMapID, playerRating
+end
+
+local function sendKeystoneToParty()
+	if not L.SHARE_KEYSTONES then return end
+	if not canSendAddonMessage() then return end
+	if not (IsInGroup and IsInGroup()) then return end
+	local now = GetTime()
+	if now - keystoneThrottleParty < KEYSTONE_THROTTLE then return end
+	keystoneThrottleParty = now
+	local keyLevel, mapID, rating = getOwnKeystoneInfo()
+	local channel = getAddonMessageChannel()
+	if not channel then return end
+	C_ChatInfo.SendAddonMessage("LibKS", string.format("%d,%d,%d", keyLevel, mapID, rating), channel)
+end
+
+local function requestKeystones()
+	if not L.SHARE_KEYSTONES then return end
+	if not canSendAddonMessage() then return end
+	if not (IsInGroup and IsInGroup()) then return end
+	local now = GetTime()
+	if now - keystoneThrottleParty < KEYSTONE_THROTTLE then return end
+	keystoneThrottleParty = now
+	local channel = getAddonMessageChannel()
+	if not channel then return end
+	C_ChatInfo.SendAddonMessage("LibKS", "R", channel)
+end
+
+local function getGroupMemberNames()
+	local members = {}
+	local playerName = UnitName("player")
+	if playerName then members[playerName] = true end
+	local numGroup = GetNumGroupMembers and GetNumGroupMembers() or 0
+	local prefix = IsInRaid and IsInRaid() and "raid" or "party"
+	for i = 1, numGroup do
+		local name, realm = UnitName(prefix .. i)
+		if name then
+			members[name] = true
+			if type(realm) == "string" and realm ~= "" then
+				members[name .. "-" .. realm] = true
+			end
+		end
+	end
+	return members
+end
+
+local function clearStaleKeystoneData()
+	if not (IsInGroup and IsInGroup()) then
+		wipe(keystoneData)
+		return
+	end
+	local members = getGroupMemberNames()
+	for name in pairs(keystoneData) do
+		if not members[name] then
+			keystoneData[name] = nil
+		end
+	end
+end
+
+local function stripRealm(name)
+	return name:match("^([^%-]+)") or name
+end
+
+local function classColoredName(name)
+	local shortName = stripRealm(name)
+	local unit
+	if shortName == UnitName("player") then
+		unit = "player"
+	else
+		local numGroup = GetNumGroupMembers and GetNumGroupMembers() or 0
+		local prefix = IsInRaid and IsInRaid() and "raid" or "party"
+		for i = 1, numGroup do
+			if UnitName(prefix .. i) == shortName then
+				unit = prefix .. i
+				break
+			end
+		end
+	end
+	if unit then
+		local _, class = UnitClass(unit)
+		if class then
+			local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+			if color and color.GenerateHexColorMarkup then
+				return color:GenerateHexColorMarkup() .. shortName .. "|r"
+			elseif color then
+				return string.format("|cFF%02x%02x%02x%s|r", (color.r or 1) * 255, (color.g or 1) * 255, (color.b or 1) * 255, shortName)
+			end
+		end
+	end
+	return "|cFFFFFFFF" .. shortName .. "|r"
+end
+
+local function formatKeystoneLine(name, level, mapID, rating)
+	local coloredName = classColoredName(name)
+	if level and level > 0 and mapID and mapID > 0 then
+		local dungeonName = getDungeonName(mapID)
+		local ratingStr = (rating and rating > 0) and string.format(" (|cFFFFD100%d|r io)", rating) or ""
+		return string.format("  %s: +%d %s%s", coloredName, level, dungeonName, ratingStr)
+	elseif not level or level == 0 then
+		return string.format("  %s: |cFF888888No keystone|r", coloredName)
+	end
+end
+
+local function printKeystones()
+	if not L.SHARE_KEYSTONES then return end
+	clearStaleKeystoneData()
+	local hasAny = false
+	for _ in pairs(keystoneData) do hasAny = true; break end
+	if not hasAny then return end
+
+	print("|cFF9CDF95Simple|rBossMods: Party keystones:")
+	for name, info in pairs(keystoneData) do
+		local line = formatKeystoneLine(name, info[1], info[2], info[3])
+		if line then print(line) end
+	end
+end
+
+local function doKeysCommand()
+	if not L.SHARE_KEYSTONES then
+		print("|cFF9CDF95Simple|rBossMods: Keystone sharing is disabled. Enable it in /sbm > Dungeon.")
+		return
+	end
+	wipe(keystoneData)
+	local name = UnitName("player")
+	if name then
+		local keyLevel, mapID, rating = getOwnKeystoneInfo()
+		keystoneData[name] = { keyLevel, mapID, rating }
+	end
+	print("|cFF9CDF95Simple|rBossMods: Party keystones:")
+	local line = name and formatKeystoneLine(name, keystoneData[name][1], keystoneData[name][2], keystoneData[name][3])
+	if line then print(line) end
+	M._keystonePrintLive = true
+	requestKeystones()
+	C_Timer.After(10, function() M._keystonePrintLive = false end)
+end
+
 local function sendDbmBreakSync(seconds)
 	if not canSendAddonMessage() then return end
 	local channel = getAddonMessageChannel()
@@ -595,6 +760,7 @@ ef:SetScript("OnEvent", function(_, event, ...)
 		if C_ChatInfo and C_ChatInfo.RegisterAddonMessagePrefix then
 			C_ChatInfo.RegisterAddonMessagePrefix("D5")
 			C_ChatInfo.RegisterAddonMessagePrefix("BigWigs")
+			C_ChatInfo.RegisterAddonMessagePrefix("LibKS")
 		end
 		if type(SimpleBossModsDB.manualTimers) == "table" then
 			for kind, info in pairs(SimpleBossModsDB.manualTimers) do
@@ -609,9 +775,17 @@ ef:SetScript("OnEvent", function(_, event, ...)
 			if not hash_SlashCmdList["/break"] then
 				SLASH_SIMPLEBOSSMODSBREAK1 = "/break"
 			end
+			if not hash_SlashCmdList["/keys"] then
+				SLASH_SIMPLEBOSSMODSKEYS1 = "/keys"
+			end
+			if not hash_SlashCmdList["/key"] then
+				SLASH_SIMPLEBOSSMODSKEYS2 = "/key"
+			end
 		else
 			SLASH_SIMPLEBOSSMODSPULL1 = "/pull"
 			SLASH_SIMPLEBOSSMODSBREAK1 = "/break"
+			SLASH_SIMPLEBOSSMODSKEYS1 = "/keys"
+			SLASH_SIMPLEBOSSMODSKEYS2 = "/key"
 		end
 		maybePrintSlashHelp()
 	elseif event == "ADDON_LOADED" then
@@ -721,7 +895,31 @@ ef:SetScript("OnEvent", function(_, event, ...)
 			M:StopManualTimer("pull", true)
 		end
 	elseif event == "CHAT_MSG_ADDON" then
-		local prefix, msg, _, sender = ...
+		local prefix, msg, channel, sender = ...
+		if prefix == "LibKS" and L.SHARE_KEYSTONES then
+			if msg == "R" then
+				if not isSenderMe(sender) then
+					sendKeystoneToParty()
+				end
+				return
+			end
+			local keyLevelStr, mapIDStr, ratingStr = msg:match("^(-?%d+),(-?%d+),(%d+)$")
+			if keyLevelStr and mapIDStr and ratingStr then
+				local senderName = Ambiguate and Ambiguate(sender, "none") or sender
+				if isSenderMe(sender) then
+					senderName = UnitName("player") or senderName
+				end
+				local keyLevel = tonumber(keyLevelStr) or 0
+				local mapID = tonumber(mapIDStr) or 0
+				local rating = tonumber(ratingStr) or 0
+				keystoneData[senderName] = { keyLevel, mapID, rating }
+				if M._keystonePrintLive then
+					local line = formatKeystoneLine(senderName, keyLevel, mapID, rating)
+					if line then print(line) end
+				end
+			end
+			return
+		end
 		if isSenderMe(sender) then
 			return
 		end
@@ -841,6 +1039,11 @@ SlashCmdList["SIMPLEBOSSMODS"] = function(msg)
 		return
 	end
 
+	if msg == "keys" or msg == "key" or msg == "keystones" then
+		doKeysCommand()
+		return
+	end
+
 	if msg == "color events" or msg == "set colors" or msg == "apply colors" then
 		if M.BuildEncounterEventCache then
 			M:BuildEncounterEventCache()
@@ -858,4 +1061,8 @@ end
 
 SlashCmdList["SIMPLEBOSSMODSBREAK"] = function(msg)
 	handleManualTimer("break", msg)
+end
+
+SlashCmdList["SIMPLEBOSSMODSKEYS"] = function()
+	doKeysCommand()
 end
